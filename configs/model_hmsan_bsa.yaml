@@ -1,0 +1,43 @@
+﻿mode: full
+hidden_size: 128
+dropout: 0.1
+
+# Text Encoder
+text_encoder: "hfl/chinese-roberta-wwm-ext"
+text_output_dim: 768
+text_max_length: 510
+text_freeze: false
+
+# Image Encoder
+image_encoder: "google/vit-base-patch16-224"
+image_output_dim: 768
+image_freeze: false
+
+# Layout Features
+layout_bbox_dim: 8
+layout_bbox_hidden: 32
+layout_color_dim: 3
+layout_color_hidden: 16
+layout_block_type_count: 3
+layout_block_type_emb: 16
+layout_output_dim: 64
+
+# Page Encoder (GSA: Gated Sparse Attention)
+page_encoder_layers: 2
+page_encoder_heads: 4
+gsa_k_base: 16
+gsa_k_min: 4
+gsa_k_max: 32
+gsa_indexer_heads: 4
+gsa_indexer_dim: 32
+global_tokens: 4
+
+# Memory (Infini-attention)
+page_memory_slots: 4
+section_memory_slots: 4
+
+# Inter-page Attention
+inter_page_window: 3
+
+# Training
+use_sequence_decoder: true

@@ -1,0 +1,21 @@
+﻿.worktrees/
+worktrees/
+data/processed/*.jsonl
+outputs/
+__pycache__/
+.pytest_cache/
+
+# Large data files
+all_blocks.xlsx
+downloads/
+
+# Vendored tools
+paper-search-mcp/
+
+# Python
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/

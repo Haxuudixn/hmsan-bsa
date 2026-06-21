@@ -1,0 +1,11 @@
+seed: 42
+excel_path: 'C:\Users\lizh2\Desktop\桌面\毕业论文\try\out_excel\all_blocks.xlsx'
+processed_dir: data/processed
+output_dir: outputs/hmsan_bsa_lite
+batch_size: 1
+epochs: 5
+learning_rate: 0.001
+weight_decay: 0.0001
+alpha_boundary: 0.5
+beta_section: 0.5
+gamma_sequence: 0.0

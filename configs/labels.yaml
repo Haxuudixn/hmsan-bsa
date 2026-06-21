@@ -1,0 +1,27 @@
+ignore_index: -100
+class_labels:
+  - 封面页
+  - 目录
+  - 商务偏差表
+  - 投标保证金
+  - 关系说明
+  - 基本情况表
+  - 营业执照
+  - 税务证明
+  - 资格证明文件
+  - 财务状况
+  - 财务凭证单
+  - 资质业绩凭证单
+  - 评分支撑材料
+  - 名称变更
+  - 一致性承诺函
+  - 十不准
+  - 公章授权书
+  - 其他
+  - 法定代表人授权委托书
+boundary_labels:
+  - O
+  - B-SECTION
+  - I-SECTION
+  - E-SECTION
+mixed_section_label: MIXED

@@ -1,0 +1,16 @@
+[project]
+name = "bid-slicing-hmsan"
+version = "0.1.0"
+description = "HMSAN-BSA tender document slicing classifier"
+requires-python = ">=3.10"
+dependencies = [
+  "pandas",
+  "openpyxl",
+  "pyyaml",
+  "torch",
+  "scikit-learn",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
