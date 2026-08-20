@@ -133,16 +133,26 @@ class BlockMultiModalEncoder(nn.Module):
 
         # ── Image branch ──
         if image_idx:
-            modality_feat[image_idx] = self.image_encoder(
-                [images[i] for i in image_idx]
-            )
+            valid_img_idx = [i for i in image_idx if images[i] is not None]
+            if valid_img_idx:
+                modality_feat[valid_img_idx] = self.image_encoder(
+                    [images[i] for i in valid_img_idx]
+                )
 
         # ── Mixed branch ──
         if mixed_idx:
-            ocr_emb = self.text_encoder([ocr_texts[i] for i in mixed_idx])
-            img_emb = self.image_encoder([images[i] for i in mixed_idx])
-            mixed_emb = self.mixed_proj(torch.cat([ocr_emb, img_emb], dim=-1))
-            modality_feat[mixed_idx] = mixed_emb
+            ocr_emb = self.text_encoder([ocr_texts[i] if ocr_texts[i] else '' for i in mixed_idx])
+            valid_mixed = [i for i in mixed_idx if images[i] is not None]
+            if valid_mixed:
+                img_emb = self.image_encoder([images[i] for i in valid_mixed])
+                # For blocks with images: full OCR+Image fusion
+                ocr_sub = ocr_emb[[mixed_idx.index(i) for i in valid_mixed]]
+                mixed_emb = self.mixed_proj(torch.cat([ocr_sub, img_emb], dim=-1))
+                modality_feat[valid_mixed] = mixed_emb
+            # For MIXED blocks without images: fall back to text-only
+            no_img_mixed = [i for i in mixed_idx if images[i] is None]
+            if no_img_mixed:
+                modality_feat[no_img_mixed] = ocr_emb[[mixed_idx.index(i) for i in no_img_mixed]]
 
         # ── Gated Fusion ──
         m_proj = self.modality_proj(modality_feat)                 # [B, H]

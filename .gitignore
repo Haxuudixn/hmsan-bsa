@@ -19,3 +19,16 @@ paper-search-mcp/
 venv/
 *.egg-info/
 dist/
+# Editor / local temp
+.idea/
+_*.py
+_*.json
+
+# Annotation tool local data and caches
+annotation_tool/__pycache__/
+annotation_tool/annotations/
+annotation_tool/index_broken_backup.html
+
+# Training data archives
+*.zip
+training_data_*/

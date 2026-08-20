@@ -11,7 +11,6 @@ from bid_slicing.models.page_encoder import PageEncoder, InterPageAttention
 from bid_slicing.models.memory import InfiniPageMemory, InfiniSectionMemory
 from bid_slicing.models.boundary_head import BoundaryHead, ClassificationHead, SectionHead
 
-
 class HMSAN_BSA(nn.Module):
     """Hierarchical Memory Sparse Attention Network with Boundary-aware Section Aggregation.
 
@@ -117,7 +116,7 @@ class HMSAN_BSA(nn.Module):
         self,
         texts: list[str],
         ocr_texts: list[str],
-        images: list[Image.Image | None],
+        image_blocks: list[Any],
         block_type_ids: torch.Tensor,      # [N] int
         bbox_norm: torch.Tensor,            # [N, 8]
         font_size: torch.Tensor,            # [N, 1]
@@ -169,7 +168,11 @@ class HMSAN_BSA(nn.Module):
             # ── Extract page blocks ──
             p_texts = texts[prev_end:end]
             p_ocr = ocr_texts[prev_end:end]
-            p_images = images[prev_end:end]
+            p_image_blocks = image_blocks[prev_end:end]
+            p_images = [
+                b.load_image() if b is not None else None
+                for b in p_image_blocks
+            ]
             p_bt = block_type_ids[prev_end:end]
             p_bbox = bbox_norm[prev_end:end]
             p_fs = font_size[prev_end:end]

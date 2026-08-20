@@ -1,0 +1,13 @@
+﻿# Experiment A4: Remove Gated Fusion
+name: "ablation_no_gated_fusion"
+description: "Replace gated fusion with simple concat+Linear"
+variants:
+  - name: "concat_fusion"
+    g1_output_gate: true
+    g2_value_gate: true
+    adaptive_sparsity: true
+    gated_fusion: false
+    gated_ffn: true
+    infini_memory: true
+    boundary_gate: true
+    gated_interpage: true

@@ -1,0 +1,13 @@
+﻿# Experiment A2: Remove G2 Value Gate
+name: "ablation_no_g2"
+description: "Remove G2 value modulation - test necessity of pre-aggregation gating"
+variants:
+  - name: "no_g2"
+    g1_output_gate: true
+    g2_value_gate: false
+    adaptive_sparsity: true
+    gated_fusion: true
+    gated_ffn: true
+    infini_memory: true
+    boundary_gate: true
+    gated_interpage: true

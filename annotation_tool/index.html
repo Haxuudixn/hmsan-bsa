@@ -1,0 +1,952 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>投标文件切片标注工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei",sans-serif;background:#1a1a2e;color:#eee;display:flex;height:100vh;overflow:hidden}
+#pageList{width:200px;min-width:200px;background:#111827;border-right:1px solid #0f3460;display:flex;flex-direction:column;overflow:hidden}
+#pageList h4{padding:10px 12px;background:#0f3460;font-size:13px;text-align:center}
+#pageListInner{flex:1;overflow-y:auto;padding:4px}
+.page-item{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:2px 0;border-radius:4px;cursor:pointer;font-size:12px;user-select:none}
+.page-item:hover{background:#1a2744}
+.page-item.active{background:#0f3460;border:1px solid #1a4a8a}
+.page-item.selected{background:#0f8a4a20;border:1px solid #0f8a4a}
+.page-item .num{width:28px;text-align:right;color:#888;flex-shrink:0}
+.page-item .stat{font-size:10px;color:#0f8a4a;margin-left:auto}
+.page-item .stat.empty{color:#e94560}
+.page-item .cb{width:16px;height:16px;border:1px solid #555;border-radius:2px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px}
+.page-item .cb.checked{background:#0f8a4a;border-color:#0f8a4a}
+#pageListActions{display:flex;gap:4px;padding:6px;border-top:1px solid #0f3460}
+#pageListActions select{flex:1;background:#0f3460;color:#eee;border:1px solid #1a4a8a;font-size:11px;padding:3px;border-radius:3px;min-width:0}
+#pageListActions button{flex:1;font-size:11px;padding:4px 6px;border:none;border-radius:3px;cursor:pointer;background:#0f3460;color:#eee}
+#pageListActions button.primary{background:#e94560}
+#viewer{flex:1;display:flex;flex-direction:column;background:#0f0f23;min-width:0}
+#toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#16213e;border-bottom:1px solid #0f3460;flex-wrap:wrap}
+#toolbar button{background:#0f3460;color:#eee;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#toolbar button:hover{background:#1a4a8a}
+#toolbar button:disabled{opacity:0.4;cursor:default}
+#toolbar input,#toolbar select{background:#0f3460;color:#eee;border:1px solid #1a4a8a;padding:4px 6px;border-radius:4px;font-size:12px}
+#toolbar .sep{width:1px;height:20px;background:#0f3460;margin:0 2px}
+#pageInfo{color:#888;font-size:12px;min-width:80px}
+#canvasWrapper{flex:1;overflow:auto;display:flex;justify-content:center;position:relative;padding:16px}
+#pdfCanvas{box-shadow:0 4px 24px rgba(0,0,0,0.5);display:block}
+#blockOverlay{position:absolute;pointer-events:none;top:0;left:0}
+.block-rect{position:absolute;border:1px dashed rgba(255,100,100,0.5);background:rgba(255,100,100,0.06);cursor:pointer;pointer-events:auto}
+.block-rect:hover{border-color:rgba(255,200,100,0.8);background:rgba(255,200,100,0.15)}
+.block-rect.labeled{border:1px solid rgba(100,255,100,0.6);background:rgba(100,255,100,0.08)}
+.block-rect.selected{border:2px solid #ffcc00;background:rgba(255,204,0,0.2);z-index:10}
+.block-rect.img{border:1px dashed rgba(100,150,255,0.6);background:rgba(100,150,255,0.1)}
+.block-rect.img.labeled{border:1px solid rgba(100,255,100,0.6);background:rgba(100,255,100,0.08)}
+.block-label-tag{position:absolute;top:-18px;left:0;font-size:9px;background:#0f3460;color:#0f0;padding:1px 4px;border-radius:2px;white-space:nowrap;pointer-events:none}
+.block-btag{position:absolute;bottom:-16px;right:0;font-size:8px;background:#333;color:#ffcc00;padding:1px 3px;border-radius:2px;pointer-events:none}
+#panel{width:360px;min-width:360px;background:#16213e;display:flex;flex-direction:column;border-left:1px solid #0f3460;overflow-y:auto}
+#panelHeader{padding:10px 14px;background:#0f3460;font-size:14px;font-weight:bold}
+#blockInfo{padding:14px;flex:1;overflow-y:auto}
+.info-row{margin-bottom:8px}
+.info-row label{display:block;font-size:11px;color:#888;margin-bottom:3px}
+.info-row input,.info-row select,.info-row textarea{width:100%;background:#0f3460;color:#eee;border:1px solid #1a4a8a;padding:6px 8px;border-radius:3px;font-size:12px}
+.info-row textarea{height:60px;resize:vertical}
+#actions{display:flex;gap:4px;padding:4px 14px 14px}
+#actions button{flex:1;padding:7px;border:none;border-radius:3px;cursor:pointer;font-size:12px}
+#btnSave{background:#0f8a4a;color:#fff}#btnSave:hover{background:#15b35e}
+#btnSkip{background:#0f3460;color:#eee}#btnSkip:hover{background:#1a4a8a}
+#exportActions{display:flex;gap:4px;padding:4px 14px}
+#exportActions button{flex:1;padding:7px;border:none;border-radius:3px;cursor:pointer;font-size:12px;background:#e94560;color:#fff}
+#exportActions button:hover{background:#ff6b81}
+#progress{padding:6px 14px;font-size:11px;color:#888}
+.bar{height:4px;background:#0f3460;border-radius:2px;margin-top:3px}
+.fill{height:100%;background:#0f8a4a;border-radius:2px;transition:width .3s}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0f8a4a;color:#fff;padding:10px 20px;border-radius:6px;font-size:13px;z-index:999;display:none}
+#labelModal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:1000;justify-content:center;align-items:center}
+#labelModal.show{display:flex}
+#labelModal .modal-box{background:#1a1a2e;border:1px solid #0f3460;border-radius:10px;padding:20px 24px;width:460px;max-height:80vh;overflow-y:auto}
+#labelModal .modal-box h3{color:#e94560;margin:0 0 5px;font-size:16px}
+#labelModal .modal-box p.hint{font-size:11px;color:#888;margin:0 0 10px}
+#labelModal textarea{width:100%;height:200px;background:#16213e;border:1px solid #0f3460;color:#eee;font-size:12px;padding:8px;border-radius:6px;resize:vertical;font-family:Consolas,monospace}
+#labelModal textarea.short{height:80px}
+#labelModal .modal-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+#labelModal .modal-actions button{padding:6px 14px;border:none;border-radius:5px;font-size:12px;cursor:pointer}
+#labelModal .btn-primary{background:#e94560;color:#fff}
+#labelModal .btn-secondary{background:#0f3460;color:#ccc}
+#labelModal .btn-warn{background:#ff6b81;color:#fff}
+#labelModal .lbl-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+#labelModal .lbl-row span{font-size:12px;color:#888}
+</style>
+</head>
+<body>
+<div id="pageList">
+  <h4>页面列表</h4>
+  <div id="pageListInner"></div>
+  <div id="pageListActions">
+    <select id="plBulkLabel"><option value="">整页标签</option></select>
+    <button class="primary" onclick="applySelectedPages()">标注选中</button>
+  </div>
+</div>
+<div id="viewer">
+  <div id="toolbar">
+    <button id="btnLoad" onclick="document.getElementById('fileInput').click()">打开PDF</button>
+    <input type="file" id="fileInput" accept=".pdf" style="display:none" onchange="loadPDF(event)">
+    <select id="pdfSelect" onchange="switchPDF()"><option value="">切换PDF</option></select>
+    <span class="sep"></span>
+    <button id="btnPrev" onclick="goPage(-1)">上一页</button>
+    <span id="pageInfo">- / -</span>
+    <button id="btnNext" onclick="goPage(1)">下一页</button>
+  </div>
+  <div id="canvasWrapper">
+    <canvas id="pdfCanvas"></canvas>
+    <div id="blockOverlay"></div>
+  </div>
+</div>
+<div id="panel">
+  <div id="panelHeader">标注面板</div>
+  <div id="blockInfo">
+    <div class="info-row"><label>块ID</label><input id="infoBlockId" readonly></div>
+    <div class="info-row"><label>类型</label><select id="infoBlockType"><option value="text">text</option><option value="image">image</option><option value="mixed">mixed</option></select></div>
+    <div class="info-row"><label>内容</label><textarea id="infoContent" readonly></textarea></div>
+    <div class="info-row"><label>字体 / 字号 / 坐标</label><input id="infoMeta" readonly></div>
+    <div class="info-row"><label>章节标签</label><select id="labelSelect"></select></div>
+    <div class="info-row"><label>边界标签</label><select id="boundarySelect"></select></div>
+    <div class="info-row"><label>OCR文字</label><textarea id="infoOcr" placeholder="手动输入OCR识别文字，或点击下方按钮自动识别"></textarea></div><div class="info-row" style="margin-bottom:4px"><button id="btnOCR" onclick="runOCR()" style="padding:5px 10px;background:#0f3460;color:#0f0;border:none;border-radius:4px;cursor:pointer;font-size:12px">OCR识别</button><span id="ocrStatus" style="font-size:11px;color:#888;margin-left:6px"></span></div>
+  </div>
+  <div id="actions">
+    <button id="btnSave" onclick="saveLabel()">保存</button>
+    <button id="btnSkip" onclick="nextBlock()">跳过</button>
+  </div>
+  <div id="progress">
+    标注进度: <span id="progText">0 / 0</span>
+    <div class="bar"><div class="fill" id="progFill" style="width:0%"></div></div>
+  </div>
+  <div id="exportActions">
+    <button onclick="exportTrainingData()">导出训练数据(ZIP)</button>
+    <button onclick="exportAnnotations()">JSON</button>
+    <button onclick="exportExcel()">CSV</button>
+    <button onclick="openLabelSettings()" style="background:#0f3460;color:#0f0;margin-left:6px">⚙ 标签设置</button>
+  </div>
+<div id="labelModal">
+  <div class="modal-box">
+    <h3>标签设置</h3>
+    <p class="hint">自定义章节标签和边界标签，每行一个。保存后会自动更新所有下拉框。</p>
+    <div class="lbl-row"><span>章节标签</span><span style="font-size:10px">每行一个，按顺序编号</span></div>
+    <textarea id="txtLabels" placeholder="每行一个标签，例如：&#10;封面页&#10;目录&#10;商务偏差表"></textarea>
+    <div class="lbl-row" style="margin-top:10px"><span>边界标签</span></div>
+    <textarea id="txtBoundary" class="short" placeholder="每行一个，首个为默认值">O
+B-SECTION
+I-SECTION
+E-SECTION</textarea>
+    <div class="modal-actions">
+      <input type="file" id="labelFileInput" accept=".txt,.csv,.json" style="display:none" onchange="importLabelFile(event)">
+      <button class="btn-secondary" onclick="document.getElementById('labelFileInput').click()">导入文件</button>
+      <button class="btn-warn" onclick="resetLabels()">恢复默认</button>
+      <button class="btn-primary" onclick="applyLabelSettings()">应用</button>
+      <button class="btn-secondary" onclick="closeLabelSettings()">关闭</button>
+    </div>
+  </div>
+</div>
+</div>
+<div id="toast"></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const DEFAULT_LABELS=["封面页","目录","商务偏差表","投标保证金","关系说明","基本情况表","营业执照","税务证明","资格证明文件","财务状况","财务凭证单","资质业绩凭证单","评分支撑材料","名称变更","一致性承诺函","十不准","公章授权书","其他","法定代表人授权委托书"];
+const DEFAULT_BOUNDARY_LABELS=["O","B-SECTION","I-SECTION","E-SECTION"];
+const LABELS=JSON.parse(localStorage.getItem("customLabels")||"null")||DEFAULT_LABELS;
+const BOUNDARY_LABELS=JSON.parse(localStorage.getItem("customBoundaryLabels")||"null")||DEFAULT_BOUNDARY_LABELS;
+let pdfDoc=null,currentPage=1,currentScale=1.5,allAnnotations={},currentBlocks=[],selectedBlockIdx=-1,currentPDFName="",loadedPDFs=[],selectedPages=new Set();
+function initSelects(){
+  const lo=LABELS.map((l,i)=>`<option value="${l}">${i+1}.${l}</option>`).join("");
+  document.getElementById("plBulkLabel").innerHTML='<option value="">整页标签</option>'+lo;
+  document.getElementById("boundarySelect").innerHTML='<option value="O">O</option>'+BOUNDARY_LABELS.filter(l=>l!=="O").map(l=>`<option value="${l}">${l}</option>`).join("");
+}
+initSelects();
+if(localStorage.getItem("customLabels")){
+  document.getElementById("txtLabels").value=LABELS.join("\n");
+}
+if(localStorage.getItem("customBoundaryLabels")){
+  document.getElementById("txtBoundary").value=BOUNDARY_LABELS.join("\n");
+}
+
+function renderPageList(){
+  const inner=document.getElementById("pageListInner");
+  if(!pdfDoc){inner.innerHTML='<div style="padding:12px;color:#666;font-size:12px">请先打开PDF</div>';return}
+  let html="";
+  for(let p=1;p<=pdfDoc.numPages;p++){
+    const anns=allAnnotations[currentPDFName]?.[String(p)]||[],total=anns.length,labeled=anns.filter(b=>b.label).length;
+    const cls=(p===currentPage?" active":"")+(selectedPages.has(p)?" selected":"");
+    html+=`<div class="page-item${cls}" onclick="onPageItemClick(${p},event)" data-page="${p}">
+      <div class="cb${selectedPages.has(p)?' checked':''}">${selectedPages.has(p)?'v':'&nbsp;'}</div>
+      <span class="num">${p}</span><span class="stat${total&&labeled===total?'':' empty'}">${total?labeled+'/'+total:''}</span></div>`;
+  }
+  inner.innerHTML=html;
+  const cur=inner.querySelector(".active");if(cur)cur.scrollIntoView({block:"nearest"});
+}
+function onPageItemClick(p,event){
+  if(event.shiftKey){const s=Math.min(p,currentPage),e=Math.max(p,currentPage);for(let i=s;i<=e;i++)selectedPages.add(i)}
+  else if(event.ctrlKey||event.metaKey){selectedPages.has(p)?selectedPages.delete(p):selectedPages.add(p)}
+  else{selectedPages.clear();currentPage=p;selectedBlockIdx=-1;renderPage();renderPageList();return}
+  renderPageList();
+}
+
+async function loadPDF(event){
+  try{
+  const file=event.target.files[0];if(!file)return;
+  currentPDFName=file.name;const buf=await file.arrayBuffer();
+  pdfDoc=await pdfjsLib.getDocument({data:buf}).promise;
+  loadedPDFs.push({name:file.name,file,doc:pdfDoc});updatePDFSelect();
+  if(!allAnnotations[currentPDFName])allAnnotations[currentPDFName]={};
+  currentPage=1;selectedPages.clear();
+  await renderPage();renderPageList();updatePageInfo();
+  }catch(e){alert("PDF加载失败: "+e.message);console.error(e)}
+}
+async function switchPDF(){
+  const sel=document.getElementById("pdfSelect"),idx=sel.selectedIndex-1;if(idx<0)return;
+  pdfDoc=loadedPDFs[idx].doc;currentPDFName=loadedPDFs[idx].name;
+  if(!allAnnotations[currentPDFName])allAnnotations[currentPDFName]={};
+  currentPage=1;selectedPages.clear();
+  await renderPage();renderPageList();updatePageInfo();
+}
+function updatePDFSelect(){
+  document.getElementById("pdfSelect").innerHTML='<option value="">切换PDF</option>'+loadedPDFs.map((p,i)=>`<option value="${i}">${p.name}</option>`).join("");
+}
+
+// ===== IMAGE EXTRACTION via operator list =====
+async function extractImages(page,vp,s){
+  const ops=await page.getOperatorList();
+  const imgs=[];
+  // CTM stack: each entry is [a,b,c,d,e,f]
+  let ctm=[s,0,0,s,0,0];
+  const stack=[];
+  const FN=pdfjsLib.OPS;
+
+  for(let i=0;i<ops.fnArray.length;i++){
+    const fn=ops.fnArray[i],args=ops.argsArray[i]||[];
+    if(fn===FN.save){stack.push([...ctm])}
+    else if(fn===FN.restore){if(stack.length)ctm=stack.pop()}
+    else if(fn===FN.transform){
+      const[m11,m12,m21,m22,dx,dy]=args;
+      // ctm = ctm * [m11 m21 dx; m12 m22 dy; 0 0 1]
+      const[a,b,c,d,e,f]=ctm;
+      ctm=[a*m11+b*m21, a*m12+b*m22, c*m11+d*m21, c*m12+d*m22, a*dx+b*dy+e, c*dx+d*dy+f];
+    }
+    else if(fn===FN.paintImageXObject||fn===FN.paintInlineImageXObject){
+      // Image bounds [0,0,1,1] in current CTM space
+      const imgRef=fn===FN.paintImageXObject&&args.length>0?args[0]:null;
+      const[a,b,c,d,e,f]=ctm;
+      // Transform corners (0,0),(1,1)
+      const x0=a*0+b*0+e, y0=c*0+d*0+f;
+      const x1=a*1+b*1+e, y1=c*1+d*1+f;
+      const minX=Math.min(x0,x1),maxX=Math.max(x0,x1);
+      const minY=Math.min(y0,y1),maxY=Math.max(y0,y1);
+      // Convert to viewport coords (flip Y)
+      const vy0=vp.height-maxY, vy1=vp.height-minY;
+      const vx0=Math.max(0,minX), vx1=Math.min(vp.width,maxX);
+      const vvy0=Math.max(0,vy0), vvy1=Math.min(vp.height,vy1);
+      if(vx1-vx0>10&&vvy1-vvy0>10){
+        imgs.push({x0:vx0,y0:vvy0,x1:vx1,y1:vvy1,ref:imgRef||""});
+      }
+    }
+  }
+  return imgs;
+}
+
+
+// ===== Font style map (global cache per PDF) =====
+let fontStyleMap = {};
+
+// Detect style from fontName string heuristically
+function heuristicStyle(fontName) {
+  const n = (fontName || "").toLowerCase();
+  const isBold = /bold|heavy|black|hei|blk|\bbd\b/i.test(n) ? 1 : 0;
+  const isItalic = /italic|oblique|kai|slanted|slnt/i.test(n) ? 1 : 0;
+  return { isBold, isItalic };
+}
+
+// Build font style map from PDF operator list + font descriptors
+async function buildFontStyleMap(page) {
+  let found = 0;
+  try {
+    const ops = await page.getOperatorList();
+    const FN = pdfjsLib.OPS;
+    // Collect font names
+    for (let i = 0; i < ops.fnArray.length; i++) {
+      if (ops.fnArray[i] === FN.setFont) {
+        const fn = ops.argsArray[i] && ops.argsArray[i][0];
+        if (fn && !(fn in fontStyleMap)) fontStyleMap[fn] = null;
+      }
+    }
+    // Try to access font descriptors via commonObjs
+    if (page.commonObjs && page.commonObjs._objs) {
+      for (const [key, obj] of Object.entries(page.commonObjs._objs)) {
+        try {
+          if (obj && obj.data && obj.data.type === "Font") {
+            const baseFont = (obj.data.baseFont || obj.data.name || "");
+            const desc = obj.data.descriptor || {};
+            const flags = desc.flags || 0;
+            const fontWeight = desc.fontWeight || 400;
+            const isBold = ((flags & (1 << 18)) !== 0 || fontWeight >= 600) ? 1 : 0;
+            const isItalic = ((flags & 64) !== 0) ? 1 : 0;
+            // Map by internal key and also by font name variations
+            const keys = [String(key), baseFont.toLowerCase()];
+            for (const k of keys) {
+              if (k && fontStyleMap[k] === null) {
+                fontStyleMap[k] = { isBold, isItalic };
+                found++;
+              }
+            }
+          }
+        } catch(e2) {}
+      }
+    }
+  } catch(e) {}
+  // Fill remaining with heuristics
+  for (const [fn, val] of Object.entries(fontStyleMap)) {
+    if (val === null) {
+      fontStyleMap[fn] = heuristicStyle(fn);
+      found++;
+    }
+  }
+  console.log("buildFontStyleMap: resolved", found, "fonts, keys:", Object.keys(fontStyleMap).slice(0,10));
+  if (found === 0) {
+    // If no fonts found via operator list, dump what getTextContent gives us
+    try {
+      const tc = await page.getTextContent();
+      const names = new Set(tc.items.map(it => it.fontName).filter(Boolean));
+      console.log("Font names from getTextContent:", [...names]);
+      for (const n of names) {
+        if (!(n in fontStyleMap)) fontStyleMap[n] = heuristicStyle(n);
+      }
+    } catch(e3) {}
+  }
+}
+
+function detectFontStyle(fontName) {
+  // Check map first, fall back to heuristic
+  if (fontStyleMap[fontName]) return fontStyleMap[fontName];
+  const n = (fontName || "").toLowerCase();
+  if (fontStyleMap[n]) return fontStyleMap[n];
+  return heuristicStyle(fontName);
+}
+
+// ===== Text color extraction via operator list =====
+async function extractTextColors(page, vp, scale) {
+  const ops = await page.getOperatorList();
+  const regions = [];
+  const FN = pdfjsLib.OPS;
+  const stack = [];
+  let fillR = 0, fillG = 0, fillB = 0;
+  let ctm = [scale, 0, 0, scale, 0, 0];
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i], args = ops.argsArray[i] || [];
+    if (fn === FN.save) { stack.push({ ctm: [...ctm], fillR, fillG, fillB }); }
+    else if (fn === FN.restore) {
+      if (stack.length) { const s = stack.pop(); ctm = s.ctm; fillR = s.fillR; fillG = s.fillG; fillB = s.fillB; }
+    }
+    else if (fn === FN.transform) {
+      const [m11, m12, m21, m22, dx, dy] = args;
+      const [a, b, c, d, e, f] = ctm;
+      ctm = [a * m11 + b * m21, a * m12 + b * m22, c * m11 + d * m21, c * m12 + d * m22, a * dx + b * dy + e, c * dx + d * dy + f];
+    }
+    else if (fn === FN.setFillRGBColor) { [fillR, fillG, fillB] = args; }
+    else if (fn === FN.setFillColor || fn === FN.setFillColorN) {
+      if (args.length >= 3) [fillR, fillG, fillB] = args.slice(0, 3);
+    }
+    else if (fn === FN.showText || fn === FN.showSpacedText) {
+      const [a, b, c, d, e, f] = ctm;
+      const fs = Math.abs(d || Math.abs(b || 10)) * scale;
+      const x0 = e, y0 = f - fs * 0.85;
+      const w = (args[0] && args[0].length ? String(args[0]).length : 5) * fs * 0.55;
+      const vx0 = Math.max(0, x0);
+      const vy0_ = Math.max(0, vp.height - y0 - fs * 0.15);
+      const vx1 = Math.min(vp.width, x0 + w);
+      const vy1_ = Math.min(vp.height, vp.height - y0 + fs * 0.85);
+      const toHex = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0");
+      const color = "#" + toHex(fillR) + toHex(fillG) + toHex(fillB);
+      regions.push({ x0: vx0, y0: vy0_, x1: vx1, y1: vy1_, color });
+    }
+  }
+  return regions;
+}
+
+function lookupColor(block, colorRegions) {
+  if (!colorRegions || !colorRegions.length) return "#000000";
+  let best = null, bestOverlap = 0;
+  for (const r of colorRegions) {
+    const ox = Math.max(0, Math.min(block.x1, r.x1) - Math.max(block.x0, r.x0));
+    const oy = Math.max(0, Math.min(block.y1, r.y1) - Math.max(block.y0, r.y0));
+    const overlap = ox * oy;
+    if (overlap > bestOverlap) { bestOverlap = overlap; best = r; }
+  }
+  if (!best && colorRegions.length > 0) {
+    let bestD = Infinity;
+    const cx = (block.x0 + block.x1) / 2, cy = (block.y0 + block.y1) / 2;
+    for (const r of colorRegions) {
+      const rcX = (r.x0 + r.x1) / 2, rcY = (r.y0 + r.y1) / 2;
+      const d = Math.abs(cx - rcX) + Math.abs(cy - rcY);
+      if (d < bestD) { bestD = d; best = r; }
+    }
+  }
+  return best ? best.color : "#000000";
+}
+
+async function renderPage(){
+  if(!pdfDoc)return;
+  const page=await pdfDoc.getPage(currentPage);
+  const vp=page.getViewport({scale:currentScale});
+  const canvas=document.getElementById("pdfCanvas"),ctx=canvas.getContext("2d");
+  canvas.width=vp.width;canvas.height=vp.height;canvas.style.width="";canvas.style.height="";
+  await page.render({canvasContext:ctx,viewport:vp}).promise;
+
+  const s=currentScale,pageKey=String(currentPage);
+  let nextId=0;
+  // Extract text colors
+  let colorRegions=null;
+  try{colorRegions=await extractTextColors(page,vp,s)}catch(e){}
+  // Text blocks
+  const tc=await page.getTextContent();
+  const textBlocks=tc.items.map((it,i)=>{
+    const fs=(it.height||10)*s,x0=it.transform[4]*s,y0=vp.height-it.transform[5]*s-fs*0.80;
+    const x1=x0+(it.width||0)*s,y1=vp.height-it.transform[5]*s+fs*0.15;
+    // Detect font style from font name
+    const fn=(it.fontName||"").toLowerCase();
+    const isBold=/bold|heavy|black|hei/i.test(fn)?1:0;
+    // Detect italic: font name hint OR text matrix skew (|m12|>0.01)
+    const hasSkew=Math.abs(it.transform[1]||0)>0.01;
+    const isItalic=/italic|oblique|kai/i.test(fn)||hasSkew?1:0;
+    return{id:nextId++,blockType:"text",text:it.str,font:it.fontName||"",fontSize:fs/s,
+      isBold,isItalic,fontColor:"",
+      x0:Math.max(0,x0),y0:Math.max(0,y0),x1:Math.min(vp.width,x1),y1:Math.min(vp.height,y1),
+      label:"",boundary:"O",ocrText:""};
+  });
+  const mergedText=mergeBlocks(textBlocks);
+  // Assign colors
+  if(colorRegions){for(const b of mergedText){b.fontColor=lookupColor(b,colorRegions);}}
+
+  // Image blocks
+  let merged=[...mergedText];
+  try{
+    const imgs=await extractImages(page,vp,s);
+    for(const img of imgs){
+      const overlap=merged.some(b=>{
+        const ox=Math.max(0,Math.min(img.x1,b.x1)-Math.max(img.x0,b.x0));
+        const oy=Math.max(0,Math.min(img.y1,b.y1)-Math.max(img.y0,b.y0));
+        return ox*oy>Math.min((img.x1-img.x0)*(img.y1-img.y0),(b.x1-b.x0)*(b.y1-b.y0))*0.3;
+      });
+      if(!overlap){
+        merged.push({id:nextId++,blockType:"image",text:"[IMAGE]",font:"",fontSize:0,
+          isBold:0,isItalic:0,fontColor:"",imgRef:img.ref||"",
+          x0:img.x0,y0:img.y0,x1:img.x1,y1:img.y1,label:"",boundary:"O",ocrText:""});
+      }
+    }
+  }catch(e){}
+
+  // ---- Load annotations ----
+  const saved=allAnnotations[currentPDFName]?.[pageKey];
+  if(saved&&saved.length>0){
+    if(saved.length>=mergedText.length){
+      currentBlocks=saved.map((a,i)=>({...a,id:i}));
+    }else{
+      const used=new Set();
+      currentBlocks=merged.map(b=>{
+        let best=null,bestD=Infinity;
+        for(let i=0;i<saved.length;i++){
+          if(used.has(i))continue;
+          const a=saved[i];
+          if(a.text===b.text&&Math.abs(a.y0-b.y0)<30){
+            const d=Math.abs(a.y0-b.y0)+Math.abs(a.x0-b.x0);
+            if(d<bestD){best=a;bestD=d;used.add(i)}
+          }
+        }
+        return best?{...b,label:best.label,blockType:best.blockType,boundary:best.boundary||"O",ocrText:best.ocrText||""}:b;
+      });
+      for(let i=0;i<saved.length;i++){
+        if(!used.has(i))currentBlocks.push({...saved[i],id:currentBlocks.length});
+      }
+      currentBlocks.sort((a,b)=>a.y0!==b.y0?a.y0-b.y0:a.x0-b.x0);
+      currentBlocks.forEach((b,i)=>b.id=i);
+    }
+  }else{
+    currentBlocks=merged;
+    currentBlocks.sort((a,b)=>a.y0!==b.y0?a.y0-b.y0:a.x0-b.x0);
+    currentBlocks.forEach((b,i)=>b.id=i);
+  }
+
+  renderBlockOverlays();updatePageInfo();updateProgress();
+}
+function mergeBlocks(blocks){
+  if(blocks.length<2)return blocks;
+  const merged=[],used=new Set(),YT=Math.max(4,currentScale*4);
+  for(let i=0;i<blocks.length;i++){
+    if(used.has(i))continue;
+    let g=[blocks[i]];used.add(i);
+    for(let j=i+1;j<blocks.length;j++){
+      if(used.has(j))continue;
+      if(Math.abs(blocks[i].y0-blocks[j].y0)<YT){
+        if(blocks[j].x0-g[g.length-1].x1<40*currentScale){g.push(blocks[j]);used.add(j)}
+      }
+    }
+    const xs=g.map(b=>b.x0).concat(g.map(b=>b.x1)),ys=g.map(b=>b.y0).concat(g.map(b=>b.y1));
+    merged.push({id:merged.length,blockType:"text",text:g.map(b=>b.text).join(" "),font:g[0].font,fontSize:g[0].fontSize,isBold:g[0].isBold||0,isItalic:g[0].isItalic||0,fontColor:g[0].fontColor||"",x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys),label:"",boundary:"O",ocrText:""});
+  }
+  return merged;
+}
+
+function mergeTextBlocksSimple(blocks,s){
+  if(blocks.length<2)return blocks;
+  const merged=[],used=new Set(),YT=Math.max(4,s*4);
+  for(let i=0;i<blocks.length;i++){
+    if(used.has(i))continue;
+    let g=[blocks[i]];used.add(i);
+    for(let j=i+1;j<blocks.length;j++){
+      if(used.has(j))continue;
+      if(Math.abs(blocks[i].y0-blocks[j].y0)<YT&&blocks[j].x0-g[g.length-1].x1<40*s){g.push(blocks[j]);used.add(j)}
+    }
+    const xs=g.map(b=>b.x0).concat(g.map(b=>b.x1)),ys=g.map(b=>b.y0).concat(g.map(b=>b.y1));
+    merged.push({id:merged.length,blockType:"text",text:g.map(b=>b.text).join(" "),font:g[0].font,fontSize:g[0].fontSize,isBold:g[0].isBold||0,isItalic:g[0].isItalic||0,fontColor:g[0].fontColor||"",x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys),label:"",boundary:"O",ocrText:""});
+  }
+  return merged;
+}
+
+function renderBlockOverlays(){
+  const ol=document.getElementById("blockOverlay"),canvas=document.getElementById("pdfCanvas");
+  const wr=document.getElementById("canvasWrapper"),wrR=wr.getBoundingClientRect();
+  const cr=canvas.getBoundingClientRect();
+  const rx=cr.width/canvas.width,ry=cr.height/canvas.height;
+  const ox=cr.left-wrR.left+wr.scrollLeft,oy=cr.top-wrR.top+wr.scrollTop;
+  ol.style.cssText=`left:0;top:0;width:${wrR.width}px;height:${wrR.height}px`;
+  ol.innerHTML="";
+  currentBlocks.forEach((b,i)=>{
+    const r=document.createElement("div");
+    let cls="block-rect";
+    if(b.blockType==="image"||b.blockType==="mixed")cls+=" img";
+    if(b.label)cls+=" labeled";
+    if(i===selectedBlockIdx)cls+=" selected";
+    r.className=cls;
+    r.style.cssText=`left:${ox+b.x0*rx}px;top:${oy+b.y0*ry}px;width:${(b.x1-b.x0)*rx}px;height:${(b.y1-b.y0)*ry}px`;
+    if(b.label){const t=document.createElement("div");t.className="block-label-tag";t.textContent=b.label;r.appendChild(t)}
+    if(b.boundary&&b.boundary!=="O"){const t=document.createElement("div");t.className="block-btag";t.textContent=b.boundary;r.appendChild(t)}
+    r.onclick=e=>{e.stopPropagation();selectBlock(i)};ol.appendChild(r);
+  });
+  ol.onclick=()=>{selectedBlockIdx=-1;renderBlockOverlays();clearBlockInfo()};
+}
+
+function selectBlock(idx){
+  selectedBlockIdx=idx;renderBlockOverlays();showBlockInfo(currentBlocks[idx]);
+  const ls=document.getElementById("labelSelect");
+  ls.innerHTML='<option value="">-- 选择标签 --</option>'+LABELS.map((l,i)=>`<option value="${l}">${i+1}.${l}</option>`).join("");
+  ls.value=currentBlocks[idx].label||"";
+  document.getElementById("boundarySelect").value=currentBlocks[idx].boundary||"O";
+  document.getElementById("infoOcr").value=currentBlocks[idx].ocrText||"";
+}
+function showBlockInfo(b){
+  document.getElementById("infoBlockId").value=b.id;document.getElementById("infoBlockType").value=b.blockType;
+  document.getElementById("infoContent").value=b.text;
+  const bld=b.isBold?"B":"",itl=b.isItalic?"I":"",sty=bld||itl?"["+(bld+itl)+"] ":"";
+  const boldTxt=b.isBold?"B":"",itlTxt=b.isItalic?"I":"",styleTxt=b.isBold||b.isItalic?"["+boldTxt+itlTxt+"] ":"";document.getElementById("infoMeta").value=b.blockType==="image"?"图片块":`${b.font} | ${Math.round(b.fontSize*10)/10}pt ${sty}(${Math.round(b.x0)},${Math.round(b.y0)},${Math.round(b.x1)},${Math.round(b.y1)})`;
+}
+function clearBlockInfo(){
+  ["infoBlockId","infoContent","infoMeta","infoOcr"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("infoBlockType").value="text";
+  document.getElementById("labelSelect").innerHTML='<option value="">-- 选择标签 --</option>';
+}
+function saveLabel(){
+  if(selectedBlockIdx<0)return;
+  const b=currentBlocks[selectedBlockIdx];
+  b.label=document.getElementById("labelSelect").value;
+  b.blockType=document.getElementById("infoBlockType").value;
+  b.ocrText=document.getElementById("infoOcr").value;
+  b.boundary=document.getElementById("boundarySelect").value;
+  if(!allAnnotations[currentPDFName][String(currentPage)])allAnnotations[currentPDFName][String(currentPage)]=[];
+  const pa=allAnnotations[currentPDFName][String(currentPage)],ex=pa.findIndex(a=>a.id===b.id);
+  if(ex>=0)pa[ex]={...b};else pa.push({...b});
+  renderBlockOverlays();updateProgress();renderPageList();showToast("已保存");
+  setTimeout(()=>nextBlock(),300);
+}
+function nextBlock(){if(selectedBlockIdx<currentBlocks.length-1)selectBlock(selectedBlockIdx+1)}
+function updateProgress(){
+  const n=currentBlocks.filter(b=>b.label).length;
+  document.getElementById("progText").textContent=n+" / "+currentBlocks.length;
+  document.getElementById("progFill").style.width=(currentBlocks.length?n/currentBlocks.length*100:0)+"%";
+}
+
+async function applySelectedPages(){console.log("applySelectedPages START, pages:",[...(selectedPages.size>0?selectedPages:[currentPage])]);
+  if(!pdfDoc)return;
+  const label=document.getElementById("plBulkLabel").value;
+  if(!label){showToast("请选择标签");return}
+  const pages=selectedPages.size>0?[...selectedPages].sort((a,b)=>a-b):[currentPage];
+  let totalCnt=0;
+  let nextId=0;
+  for(const p of pages){
+    const pa=allAnnotations[currentPDFName][String(p)]||[];
+    allAnnotations[currentPDFName][String(p)]=pa;
+    if(p===currentPage){
+      pa.length=0;
+      for(const b of currentBlocks){
+        if(!b.label){b.label=label;totalCnt++}
+        b.id=nextId++; pa.push({...b});
+      }
+    }else{
+      try{
+        const pg=await pdfDoc.getPage(p);
+        const vp=pg.getViewport({scale:currentScale});
+        let bulkColorRegions=null;
+        try{bulkColorRegions=await extractTextColors(pg,vp,currentScale)}catch(e){}
+        const tc=await pg.getTextContent();
+        const textBlocks=tc.items.map(it=>{
+          const fs=(it.height||10)*currentScale,x0=it.transform[4]*currentScale,y0=vp.height-it.transform[5]*currentScale-fs*0.80;
+          const fn=(it.fontName||"").toLowerCase();
+          const isBold=/bold|heavy|black|hei/i.test(fn)?1:0;
+          const hasSkew=Math.abs(it.transform[1]||0)>0.01;
+          const isItalic=/italic|oblique|kai/i.test(fn)||hasSkew?1:0;
+          return{blockType:"text",text:it.str,font:it.fontName||"",fontSize:fs/currentScale,
+            isBold,isItalic,fontColor:"",
+            x0:Math.max(0,x0),y0:Math.max(0,y0),x1:Math.min(vp.width,x0+(it.width||0)*currentScale),y1:Math.min(vp.height,vp.height-it.transform[5]*currentScale+fs*0.15),
+            label:"",boundary:"O",ocrText:""};
+        });
+        const merged=mergeTextBlocksSimple(textBlocks,currentScale);
+        if(bulkColorRegions){for(const b of merged){b.fontColor=lookupColor(b,bulkColorRegions);}}
+        let allBlocks=[...merged];
+        try{
+          const imgs=await extractImages(pg,vp,currentScale);
+          for(const img of imgs){
+            const overlap=allBlocks.some(b=>{
+              const ox=Math.max(0,Math.min(img.x1,b.x1)-Math.max(img.x0,b.x0));
+              const oy=Math.max(0,Math.min(img.y1,b.y1)-Math.max(img.y0,b.y0));
+              return ox*oy>Math.min((img.x1-img.x0)*(img.y1-img.y0),(b.x1-b.x0)*(b.y1-b.y0))*0.3;
+            });
+            if(!overlap){
+              allBlocks.push({blockType:"image",text:"[IMAGE]",font:"",fontSize:0,
+                isBold:0,isItalic:0,fontColor:"",imgRef:img.ref||"",
+                x0:img.x0,y0:img.y0,x1:img.x1,y1:img.y1,label:"",boundary:"O",ocrText:""});
+            }
+          }
+        }catch(e){}
+        pa.length=0;
+        for(const b of allBlocks){
+          b.label=label; b.id=nextId++; totalCnt++;
+          pa.push({...b});
+        }
+      }catch(e){console.warn("Page "+p+" failed:",e)}
+    }
+  }
+  renderBlockOverlays(); updateProgress(); renderPageList();
+  showToast(`已标注 ${totalCnt} 个块 (${pages.length}页)`);
+}
+
+
+function getAnnotationRows(){
+  const rows=[];
+  for(const[pdfName,pages]of Object.entries(allAnnotations))
+    for(const[pageNum,blocks]of Object.entries(pages))
+      for(const b of blocks){if(!b.label)continue;
+        rows.push({pdf_name:pdfName,page_num:parseInt(pageNum),block_type:b.blockType||"text",bbox:`(${Math.round(b.x0)},${Math.round(b.y0)},${Math.round(b.x1)},${Math.round(b.y1)})`,content:b.text||"",font:b.font||"",font_size:String(Math.round(b.fontSize*10)/10),is_bold:b.isBold||0,is_italic:b.isItalic||0,font_color:b.fontColor||"",label:b.label,boundary_label:b.boundary||"O",ocr_text:b.ocrText||"",block_id:b.id});
+      }
+  return rows;
+}
+function exportAnnotations(){
+  const rows=getAnnotationRows();
+  const blob=new Blob([JSON.stringify(rows,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="annotations_"+new Date().toISOString().slice(0,10)+".json";a.click();
+  showToast("导出 "+rows.length+" 条JSON");
+}
+function exportExcel(){
+  const rows=getAnnotationRows();
+  const h=["pdf_name","page_num","block_type","bbox","content","font","font_size","is_bold","is_italic","font_color","label","boundary_label","ocr_text","block_id"];
+  let csv=h.join(",")+"\n";
+  for(const r of rows)csv+=h.map(k=>'"'+String(r[k]||"")+'"').join(",")+"\n";
+  const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="annotations_"+new Date().toISOString().slice(0,10)+".csv";a.click();
+  showToast("导出 "+rows.length+" 条CSV");
+}
+
+let _jszipReady=null;
+function loadJSZip(){
+  if(_jszipReady)return _jszipReady;
+  _jszipReady=new Promise((resolve,reject)=>{
+    if(typeof JSZip!=="undefined"){resolve(JSZip);return}
+    const urls=[
+      "https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js",
+      "https://unpkg.com/jszip@3.10.1/dist/jszip.min.js",
+      "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
+    ];
+    let idx=0;
+    function tryNext(){
+      if(idx>=urls.length){reject(new Error("All CDNs failed"));return}
+      const s=document.createElement("script");
+      s.src=urls[idx++];
+      s.onload=()=>resolve(JSZip);
+      s.onerror=tryNext;
+      document.head.appendChild(s);
+    }
+    tryNext();
+  });
+  return _jszipReady;
+}
+
+async function renderImageBlockToBlob(b) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      let pageNum = null;
+      const ann = allAnnotations[currentPDFName] || {};
+      for (const [pn, blocks] of Object.entries(ann)) {
+        if (blocks.some(bb => bb.id === b.id)) { pageNum = parseInt(pn); break; }
+      }
+      if (!pageNum) { reject(new Error("page not found")); return; }
+      const pg = await pdfDoc.getPage(pageNum);
+      const renderScale = 3.0;
+      const sc = currentScale || 1.5;
+      const rvp = pg.getViewport({ scale: renderScale });
+      const ratio = renderScale / sc;
+      const x0 = Math.floor(b.x0 * ratio);
+      const y0 = Math.floor(b.y0 * ratio);
+      const w = Math.max(1, Math.ceil((b.x1 - b.x0) * ratio));
+      const h = Math.max(1, Math.ceil((b.y1 - b.y0) * ratio));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = rvp.width; pageCanvas.height = rvp.height;
+      await pg.render({ canvasContext: pageCanvas.getContext("2d"), viewport: rvp }).promise;
+      ctx.drawImage(pageCanvas, x0, y0, w, h, 0, 0, w, h);
+      canvas.toBlob(resolve, "image/png");
+    } catch (e) { console.error("renderImage:", e); reject(e); }
+  });
+}
+
+async function runOCR(){
+  if(selectedBlockIdx<0){showToast("请先选择一个块");return}
+  const b=currentBlocks[selectedBlockIdx];
+  if(b.blockType!=="image"&&b.blockType!=="mixed"){showToast("仅图像/图文混合块可OCR");return}
+  const status=document.getElementById("ocrStatus");
+  const btn=document.getElementById("btnOCR");
+  status.textContent="识别中...";if(btn)btn.disabled=true;
+  try{
+    const blob=await renderImageBlockToBlob(b);
+    if(!blob){throw new Error("图像渲染失败")}
+    const fd=new FormData();fd.append("image",blob,"block.png");
+    const resp=await fetch("http://127.0.0.1:8502/ocr",{method:"POST",body:fd});
+    if(!resp.ok)throw new Error("服务器错误 "+resp.status);
+    const j=await resp.json();
+    if(j.error)throw new Error(j.error);
+    document.getElementById("infoOcr").value=j.text||"";
+    status.textContent=j.text?("完成 "+j.text.length+"字"):"未识别到文字";
+  }catch(e){
+    status.textContent="失败:"+e.message;
+    console.error(e);
+  }finally{if(btn)btn.disabled=false}
+}
+
+async function exportTrainingData() {
+  try{await loadJSZip()}catch(e){showToast("JSZip加载失败");return}
+  showToast("正在导出训练数据...");
+  const btns=document.getElementById("exportActions");
+  if(btns)btns.style.opacity="0.5";
+  
+  const allBlocks = [];
+  console.log("Export: allAnnotations keys:", Object.keys(allAnnotations));
+  for(const [pdfName, pages] of Object.entries(allAnnotations)) {
+    for(const [pageNum, blocks] of Object.entries(pages)) {
+      for(const b of blocks) {
+        if(!b.label) continue;
+        if(allBlocks.length<3)console.log("Block sample:",{id:b.id,label:b.label,isBold:b.isBold,isItalic:b.isItalic,fontColor:b.fontColor,type:b.blockType});
+        allBlocks.push({...b, _pdfName: pdfName, _pageNum: parseInt(pageNum)});
+      }
+    }
+  }
+  
+  let txtIdx=0, imgIdx=0;
+  const blockFiles = allBlocks.map(b => {
+    if(b.blockType==="image"||b.blockType==="mixed") {
+      imgIdx++;
+      return { ...b, _file: "blocks/block_"+String(imgIdx).padStart(4,"0")+".png", _isImg: true };
+    } else {
+      txtIdx++;
+      return { ...b, _file: "blocks/block_"+String(txtIdx).padStart(4,"0")+".txt", _isImg: false };
+    }
+  });
+  
+  const h=["pdf_name","page_num","block_type","bbox","content","font","font_size","is_bold","is_italic","font_color","label","boundary_label","ocr_text","block_id","block_file"];
+  console.log("Export: total blocks with labels:", allBlocks.length);
+  if(allBlocks.length>0)console.log("First block keys:", Object.keys(allBlocks[0]));
+  let csv=h.join(",")+"\n";
+  for(const b of blockFiles) {
+    csv+=h.map(k=>{
+      if(k==="block_file") return '"'+b._file+'"';
+      if(k==="content"&&b._isImg) return '"'+b._file+'"';
+      if(k==="pdf_name") return '"'+b._pdfName+'"';
+      if(k==="page_num") return b._pageNum;
+      let v;
+      if(k==="pdf_name")v=b._pdfName;
+      else if(k==="page_num")v=b._pageNum;
+      else if(k==="block_type")v=b.blockType||"text";
+      else if(k==="bbox")v="("+Math.round(b.x0)+","+Math.round(b.y0)+","+Math.round(b.x1)+","+Math.round(b.y1)+")";
+      else if(k==="content")v=b._isImg?b._file:(b.text||"");
+      else if(k==="font_size")v=String(Math.round((b.fontSize||0)*10)/10);
+      else if(k==="is_bold")v=b.isBold||0;
+      else if(k==="is_italic")v=b.isItalic||0;
+      else if(k==="font_color")v=b.fontColor||"";
+      else if(k==="boundary_label")v=b.boundary||"O";
+      else if(k==="ocr_text")v=b.ocrText||"";
+      else if(k==="block_id")v=b.id;
+      else if(k==="block_file")v=b._file;
+      else v=b[k];
+      return '"'+String(v??"")+'"';
+    }).join(",")+"\n";
+  }
+  
+  const jsonData = {
+    export_date: new Date().toISOString().slice(0,10),
+    total_blocks: blockFiles.length,
+    blocks: blockFiles.map(b => ({
+      block_id: b.id,
+      page_num: b._pageNum,
+      block_type: b.blockType||"text",
+      bbox: [Math.round(b.x0), Math.round(b.y0), Math.round(b.x1), Math.round(b.y1)],
+      content: b._isImg ? b._file : (b.text||""),
+      font: b.font||"",
+      font_size: Math.round((b.fontSize||0)*10)/10,
+      is_bold: b.isBold||0,
+      is_italic: b.isItalic||0,
+      font_color: b.fontColor||"",
+      label: b.label,
+      boundary: b.boundary||"O",
+      ocr_text: b.ocrText||"",
+      block_file: b._file,
+      pdf_name: b._pdfName
+    }))
+  };
+  
+  try{
+    const zip=new JSZip();
+    zip.file("annotations.csv", "\ufeff"+csv);
+    zip.file("annotations.json", JSON.stringify(jsonData, null, 2));
+    
+    for(const b of blockFiles) {
+      if(!b._isImg) { zip.file(b._file, b.text||""); }
+    }
+    
+    let imgSuccess=0;
+    for(const b of blockFiles) {
+      if(b._isImg) {
+        try{
+          const blob=await renderImageBlockToBlob(b);
+          zip.file(b._file, blob);
+          imgSuccess++;
+        }catch(e2){console.warn("Image "+b._file+" failed:",e2)}
+      }
+    }
+    
+    console.log('Exporting '+blockFiles.length+' blocks. Sample isBold values:',blockFiles.slice(0,5).map(b=>b.isBold));
+    const zipBlob=await zip.generateAsync({type:"blob"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(zipBlob);
+    a.download="training_data_"+new Date().toISOString().slice(0,10)+".zip";
+    a.click();
+    showToast("导出 "+blockFiles.length+" 块 (CSV+JSON+"+imgSuccess+"图片)");
+  }catch(e3){
+    console.error(e3);
+    const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="annotations_"+new Date().toISOString().slice(0,10)+".csv";
+    a.click();
+    showToast("ZIP失败，仅导出CSV");
+  }
+  if(btns)btns.style.opacity="1";
+}
+
+
+async function goPage(delta){
+  if(!pdfDoc)return;
+  const np=currentPage+delta;if(np<1||np>pdfDoc.numPages)return;
+  currentPage=np;selectedBlockIdx=-1;await renderPage();renderPageList();
+}
+function updatePageInfo(){
+  if(!pdfDoc)return;
+  document.getElementById("pageInfo").textContent=currentPage+" / "+pdfDoc.numPages;
+  document.getElementById("btnPrev").disabled=currentPage<=1;
+  document.getElementById("btnNext").disabled=currentPage>=pdfDoc.numPages;
+}
+
+/* === Label Settings Functions === */
+function openLabelSettings(){
+  document.getElementById("labelModal").classList.add("show");
+  document.getElementById("txtLabels").value=LABELS.join("\n");
+  document.getElementById("txtBoundary").value=BOUNDARY_LABELS.join("\n");
+}
+function closeLabelSettings(){
+  document.getElementById("labelModal").classList.remove("show");
+}
+function applyLabelSettings(){
+  const raw=document.getElementById("txtLabels").value.trim();
+  const labels=raw.split("\n").map(s=>s.trim()).filter(s=>s);
+  if(!labels.length){showToast("至少需要一个标签");return}
+  const rawB=document.getElementById("txtBoundary").value.trim();
+  const boundaries=rawB.split("\n").map(s=>s.trim()).filter(s=>s);
+  if(!boundaries.length){showToast("至少需要一个边界标签");return}
+  LABELS.length=0;LABELS.push(...labels);
+  BOUNDARY_LABELS.length=0;BOUNDARY_LABELS.push(...boundaries);
+  localStorage.setItem("customLabels",JSON.stringify(labels));
+  localStorage.setItem("customBoundaryLabels",JSON.stringify(boundaries));
+  initSelects();
+  renderPageList();
+  if(selectedBlockIdx>=0)selectBlock(selectedBlockIdx);
+  closeLabelSettings();
+  showToast("已应用 "+labels.length+" 个标签, "+boundaries.length+" 个边界标签");
+}
+function resetLabels(){
+  if(!confirm("确定恢复默认标签吗？"))return;
+  LABELS.length=0;LABELS.push(...DEFAULT_LABELS);
+  BOUNDARY_LABELS.length=0;BOUNDARY_LABELS.push(...DEFAULT_BOUNDARY_LABELS);
+  localStorage.removeItem("customLabels");
+  localStorage.removeItem("customBoundaryLabels");
+  document.getElementById("txtLabels").value=DEFAULT_LABELS.join("\n");
+  document.getElementById("txtBoundary").value=DEFAULT_BOUNDARY_LABELS.join("\n");
+  initSelects();
+  renderPageList();
+  if(selectedBlockIdx>=0)selectBlock(selectedBlockIdx);
+  showToast("已恢复默认标签");
+}
+async function importLabelFile(event){
+  const file=event.target.files[0];if(!file)return;
+  try{
+    const text=await file.text();
+    let labels=[];
+    if(file.name.endsWith(".json")){
+      const j=JSON.parse(text);
+      labels=Array.isArray(j)?j:(j.labels||j.class_labels||[]);
+    }else if(file.name.endsWith(".csv")){
+      labels=text.split("\n").map(l=>l.split(",")[0].trim().replace(/^"|"$/g,"")).filter(s=>s&&!s.startsWith("#"));
+    }else{
+      labels=text.split("\n").map(s=>s.trim()).filter(s=>s&&!s.startsWith("#"));
+    }
+    if(!labels.length){showToast("未找到有效标签");return}
+    document.getElementById("txtLabels").value=labels.join("\n");
+    showToast("已导入 "+labels.length+" 个标签");
+  }catch(e){showToast("导入失败: "+e.message)}
+  event.target.value="";
+}
+/* ================================= */
+
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"||e.target.tagName==="SELECT")return;
+  if(e.key==="ArrowDown"||e.key==="ArrowRight"){e.preventDefault();nextBlock()}
+  else if(e.key==="ArrowUp"||e.key==="ArrowLeft"){e.preventDefault();if(selectedBlockIdx>0)selectBlock(selectedBlockIdx-1)}
+  else if(e.key==="Enter"){e.preventDefault();saveLabel()}
+  else if(e.key===" "){e.preventDefault();nextBlock()}
+  else if(e.key>="1"&&e.key<="9"){const i=parseInt(e.key)-1;if(i<LABELS.length){document.getElementById("labelSelect").value=LABELS[i];saveLabel()}}
+  else if(e.key==="0"){const i=9;if(i<LABELS.length){document.getElementById("labelSelect").value=LABELS[i];saveLabel()}}
+  else if(e.key==="PageDown")goPage(1);else if(e.key==="PageUp")goPage(-1);
+});
+function showToast(msg){const t=document.getElementById("toast");t.textContent=msg;t.style.display="block";setTimeout(()=>t.style.display="none",1500)}
+updatePageInfo();
+</script>
+</body>
+</html>
+
+
+
+

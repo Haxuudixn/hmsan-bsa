@@ -1,11 +1,30 @@
+﻿# ============================================================
+# HMSAN-BSA Training Configuration
+# Based on real annotated data from 8 bid documents
+# ============================================================
+
 seed: 42
-excel_path: 'C:\Users\lizh2\Desktop\桌面\毕业论文\try\out_excel\all_blocks.xlsx'
-processed_dir: data/processed
-output_dir: outputs/hmsan_bsa_lite
+
+# Data paths
+data_dir: "D:/投标文件切片/新建文件夹"
+label_config: "configs/labels.yaml"
+
+# Output
+output_dir: "outputs/hmsan_bsa_v1"
+
+# Data split (by document)
+train_ratio: 0.7
+val_ratio: 0.15
+
+# Training hyperparameters
 batch_size: 1
-epochs: 5
+epochs: 20
 learning_rate: 0.001
 weight_decay: 0.0001
-alpha_boundary: 0.5
-beta_section: 0.5
-gamma_sequence: 0.0
+
+# Loss weights
+alpha_boundary: 0.5    # Boundary loss weight
+beta_section: 0.5       # Section loss weight
+
+# Device
+device: "cuda"

@@ -1,0 +1,13 @@
+﻿# Experiment: Full HMSAN-BSA (Baseline)
+name: "full_hmsan_bsa"
+description: "Complete model with all 8 gating positions"
+variants:
+  - name: "full"
+    g1_output_gate: true
+    g2_value_gate: true
+    adaptive_sparsity: true
+    gated_fusion: true
+    gated_ffn: true
+    infini_memory: true
+    boundary_gate: true
+    gated_interpage: true

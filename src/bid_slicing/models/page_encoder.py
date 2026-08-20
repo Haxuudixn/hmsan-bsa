@@ -125,8 +125,8 @@ class GatedSparseLocalAttention(nn.Module):
         with torch.no_grad():
             # Variance over the scored dimension per item
             var = scores.var(dim=-1).mean().item()
-            self.ema_var = self.ema_decay * self.ema_var + (1 - self.ema_decay) * var
-            ratio = var / (self.ema_var + 1e-8)
+            new_ema = self.ema_decay * self.ema_var + (1 - self.ema_decay) * var; self.ema_var = new_ema.detach()
+            ratio = var / (new_ema.item() + 1e-8)
             k = int(round(self.k_base * ratio))
             return max(self.k_min, min(self.k_max, k))
 

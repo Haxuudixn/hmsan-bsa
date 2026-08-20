@@ -1,0 +1,13 @@
+﻿# Experiment A8: Remove Gated InterPage
+name: "ablation_no_interpage_gate"
+description: "Remove gating from inter-page attention"
+variants:
+  - name: "no_interpage_gate"
+    g1_output_gate: true
+    g2_value_gate: true
+    adaptive_sparsity: true
+    gated_fusion: true
+    gated_ffn: true
+    infini_memory: true
+    boundary_gate: true
+    gated_interpage: false

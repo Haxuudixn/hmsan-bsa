@@ -1,0 +1,13 @@
+﻿# Experiment A6: Remove Infini Memory
+name: "ablation_no_memory"
+description: "Remove all compressive memory - test cross-page memory necessity"
+variants:
+  - name: "no_memory"
+    g1_output_gate: true
+    g2_value_gate: true
+    adaptive_sparsity: true
+    gated_fusion: true
+    gated_ffn: true
+    infini_memory: false
+    boundary_gate: true
+    gated_interpage: true
