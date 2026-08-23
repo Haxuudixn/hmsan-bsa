@@ -43,6 +43,13 @@ def parse_args():
     p.add_argument("--val_ratio", type=float, default=0.15)
     p.add_argument("--alpha_boundary", type=float, default=0.5)
     p.add_argument("--beta_section", type=float, default=0.5)
+    p.add_argument("--class_weight_mode", type=str, default="inverse",
+                   choices=["none", "inverse", "sqrt"],
+                   help="Class weight mode for block classification (inverse/sqrt/none)")
+    p.add_argument("--focal_loss", action="store_true",
+                   help="Use focal loss for block classification")
+    p.add_argument("--focal_gamma", type=float, default=2.0,
+                   help="Focal loss gamma (only used with --focal_loss)")
     return p.parse_args()
 
 
@@ -76,6 +83,78 @@ def compute_metrics(
     }
 
 
+def compute_class_weights(documents, num_classes: int, mode: str = "inverse"):
+    """Compute class weights from the training documents.
+
+    Modes:
+      - inverse: 1 / count
+      - sqrt:    1 / sqrt(count)
+      - none:    disable weighting
+    """
+    if mode == "none":
+        return None
+
+    counts = torch.zeros(num_classes, dtype=torch.float)
+    for doc in documents:
+        for page in doc.pages:
+            for block in page.blocks:
+                label_id = block.label_id
+                if label_id != IGNORE_INDEX:
+                    counts[label_id] += 1
+
+    if counts.sum() == 0:
+        return None
+
+    if mode == "inverse":
+        weights = 1.0 / (counts + 1e-6)
+    elif mode == "sqrt":
+        weights = 1.0 / torch.sqrt(counts + 1e-6)
+    else:
+        return None
+
+    # Normalize so the mean weight is 1.0.
+    weights = weights / weights.sum() * num_classes
+    return weights
+
+
+def block_cls_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    class_weights: torch.Tensor | None = None,
+    use_focal: bool = False,
+    focal_gamma: float = 2.0,
+    ignore_index: int = IGNORE_INDEX,
+) -> torch.Tensor:
+    """Block classification loss with optional class weights and focal loss."""
+    logits = logits.reshape(-1, logits.size(-1))
+    targets = targets.reshape(-1)
+
+    if not use_focal:
+        return F.cross_entropy(
+            logits,
+            targets,
+            weight=class_weights,
+            ignore_index=ignore_index,
+        )
+
+    ce = F.cross_entropy(
+        logits,
+        targets,
+        reduction="none",
+        ignore_index=ignore_index,
+    )
+    valid = targets != ignore_index
+    if not valid.any():
+        return torch.tensor(0.0, device=logits.device)
+
+    pt = torch.exp(-ce)
+    focal = (1.0 - pt) ** focal_gamma * ce
+    if class_weights is not None:
+        class_weights = class_weights.to(logits.device)
+        focal = focal * class_weights[targets.clamp(min=0)]
+    return focal[valid].mean()
+
+
 def train_epoch(
     model: nn.Module,
     dataloader: DataLoader,
@@ -83,6 +162,9 @@ def train_epoch(
     device: torch.device,
     alpha: float = 0.5,
     beta: float = 0.5,
+    class_weights: torch.Tensor | None = None,
+    use_focal: bool = False,
+    focal_gamma: float = 2.0,
 ) -> dict:
     """Train one epoch."""
     model.train()
@@ -137,10 +219,12 @@ def train_epoch(
             page_start = 0 if i == 0 else page_splits[i - 1]
             page_end = page_splits[i]
             page_labels = labels[page_start:page_end].unsqueeze(0)  # [1, Ni]
-            cls_loss += F.cross_entropy(
-                bl.view(-1, bl.size(-1)),
-                page_labels.view(-1),
-                ignore_index=IGNORE_INDEX,
+            cls_loss += block_cls_loss(
+                bl,
+                page_labels,
+                class_weights=class_weights,
+                use_focal=use_focal,
+                focal_gamma=focal_gamma,
             )
 
             # Boundary loss
@@ -192,6 +276,9 @@ def validate(
     device: torch.device,
     alpha: float = 0.5,
     beta: float = 0.5,
+    class_weights: torch.Tensor | None = None,
+    use_focal: bool = False,
+    focal_gamma: float = 2.0,
 ) -> dict:
     """Validate the model."""
     model.eval()
@@ -236,10 +323,12 @@ def validate(
             page_start = 0 if i == 0 else page_splits[i - 1]
             page_end = page_splits[i]
             page_labels = labels[page_start:page_end].unsqueeze(0)
-            cls_loss += F.cross_entropy(
-                bl.view(-1, bl.size(-1)),
-                page_labels.view(-1),
-                ignore_index=IGNORE_INDEX,
+            cls_loss += block_cls_loss(
+                bl,
+                page_labels,
+                class_weights=class_weights,
+                use_focal=use_focal,
+                focal_gamma=focal_gamma,
             )
             page_bound = boundaries[page_start:page_start + 1]
             bound_loss += F.cross_entropy(bd, page_bound, ignore_index=IGNORE_INDEX)
@@ -320,6 +409,18 @@ def main():
     )
     print(f"Split: train={len(train_ds)}, val={len(val_ds)}, test={len(test_ds)}")
 
+    # Compute class weights from training documents only.
+    class_weights = compute_class_weights(
+        train_ds.documents, label_schema.num_classes, args.class_weight_mode
+    )
+    if class_weights is not None:
+        print("Class weights (mean=1.0, computed on train split):")
+        for i, w in enumerate(class_weights.tolist()):
+            name = label_schema.decode_class(i) or "(ignore)"
+            print(f"  {name}: {w:.3f}")
+    else:
+        print("Class weights: disabled")
+
     train_loader = DataLoader(
         train_ds, batch_size=1, shuffle=True,
         collate_fn=collate_document, num_workers=0,
@@ -382,10 +483,16 @@ def main():
         train_metrics = train_epoch(
             model, train_loader, optimizer, device,
             alpha=args.alpha_boundary, beta=args.beta_section,
+            class_weights=class_weights,
+            use_focal=args.focal_loss,
+            focal_gamma=args.focal_gamma,
         )
         val_metrics = validate(
             model, val_loader, device,
             alpha=args.alpha_boundary, beta=args.beta_section,
+            class_weights=None,
+            use_focal=False,
+            focal_gamma=args.focal_gamma,
         )
 
         print(f"Train - loss: {train_metrics['loss']:.4f}, "
