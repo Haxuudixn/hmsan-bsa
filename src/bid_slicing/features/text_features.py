@@ -23,6 +23,10 @@ class RoBERTaTextEncoder(nn.Module):
         if freeze:
             for param in self.encoder.parameters():
                 param.requires_grad = False
+        else:
+            if hasattr(self.encoder, "gradient_checkpointing_enable"):
+                self.encoder.gradient_checkpointing_enable()
+                self.encoder.config.use_cache = False
 
         self.output_dim = output_dim
         self.head_tail_ratio = 0.5  # split equally for head+tail truncation

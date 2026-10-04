@@ -1,0 +1,112 @@
+[
+  {
+    "slug": "delivered",
+    "label": "full (delivered)",
+    "best_epoch": 6,
+    "best_acc": 0.9626,
+    "best_macro_f1": 0.8362,
+    "last_epoch": 8,
+    "last_acc": 0.9476,
+    "last_macro_f1": 0.8546,
+    "blocks": 64788
+  },
+  {
+    "slug": "stage2_pilot_full_seed42",
+    "label": "full (pilot s42)",
+    "best_epoch": 8,
+    "best_acc": 0.9543,
+    "best_macro_f1": 0.8395,
+    "last_epoch": 8,
+    "last_acc": 0.9543,
+    "last_macro_f1": 0.8395,
+    "blocks": 64788
+  },
+  {
+    "slug": "A2_no_g2",
+    "label": "A2 no_g2",
+    "best_epoch": 8,
+    "best_acc": 0.9495,
+    "best_macro_f1": 0.8324,
+    "last_epoch": 8,
+    "last_acc": 0.9495,
+    "last_macro_f1": 0.8324,
+    "blocks": 64788
+  },
+  {
+    "slug": "A6_no_page_memory",
+    "label": "A6 no_page_memory",
+    "best_epoch": 7,
+    "best_acc": 0.9301,
+    "best_macro_f1": 0.8482,
+    "last_epoch": 8,
+    "last_acc": 0.9111,
+    "last_macro_f1": 0.8715,
+    "blocks": 64788
+  },
+  {
+    "slug": "A7_no_boundary_gate",
+    "label": "A7 no_boundary_gate",
+    "best_epoch": 8,
+    "best_acc": 0.9491,
+    "best_macro_f1": 0.8266,
+    "last_epoch": 8,
+    "last_acc": 0.9491,
+    "last_macro_f1": 0.8266,
+    "blocks": 64788
+  },
+  {
+    "slug": "A10_dense",
+    "label": "A10 dense (=B4)",
+    "best_epoch": 8,
+    "best_acc": 0.931,
+    "best_macro_f1": 0.8413,
+    "last_epoch": 8,
+    "last_acc": 0.931,
+    "last_macro_f1": 0.8413,
+    "blocks": 64788
+  },
+  {
+    "slug": "A11_no_gates",
+    "label": "A11 no_gates",
+    "best_epoch": 6,
+    "best_acc": 0.9333,
+    "best_macro_f1": 0.8466,
+    "last_epoch": 8,
+    "last_acc": 0.8743,
+    "last_macro_f1": 0.8074,
+    "blocks": 64788
+  },
+  {
+    "slug": "b1_roberta_mlp",
+    "label": "B1 roberta+MLP",
+    "best_epoch": 3,
+    "best_acc": 0.713,
+    "best_macro_f1": 0.5619,
+    "last_epoch": 8,
+    "last_acc": 0.7018,
+    "last_macro_f1": 0.5518,
+    "blocks": 64788
+  },
+  {
+    "slug": "b2_roberta_layout_mlp",
+    "label": "B2 +layout",
+    "best_epoch": 4,
+    "best_acc": 0.698,
+    "best_macro_f1": 0.5523,
+    "last_epoch": 8,
+    "last_acc": 0.6905,
+    "last_macro_f1": 0.5592,
+    "blocks": 64788
+  },
+  {
+    "slug": "b3_page_bigru",
+    "label": "B3 page-BiGRU (cap48 eval)",
+    "best_epoch": 7,
+    "best_acc": 0.9261,
+    "best_macro_f1": 0.8805,
+    "last_epoch": 8,
+    "last_acc": 0.895,
+    "last_macro_f1": 0.867,
+    "blocks": 59043
+  }
+]

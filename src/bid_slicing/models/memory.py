@@ -191,16 +191,20 @@ class InfiniSectionMemory(InfiniMemory):
         dim: int = 128,
         num_boundaries: int = 4,
         dropout: float = 0.1,
+        boundary_gate: bool = True,
     ):
         super().__init__(dim=dim, dropout=dropout)
+        self.use_boundary_gate = boundary_gate
 
-        # Boundary-sensitive mask predictor
-        self.boundary_gate = nn.Sequential(
-            nn.Linear(dim + num_boundaries, dim),
-            nn.ReLU(),
-            nn.Linear(dim, 1),
-            nn.Sigmoid(),
-        )
+        # Boundary-sensitive mask predictor.  A7 removes it entirely, which
+        # degrades the section memory to a plain every-page Infini update.
+        if boundary_gate:
+            self.boundary_gate = nn.Sequential(
+                nn.Linear(dim + num_boundaries, dim),
+                nn.ReLU(),
+                nn.Linear(dim, 1),
+                nn.Sigmoid(),
+            )
 
     def init_state(self, batch_size: int, device: torch.device):
         return self._init_state(batch_size, device)
@@ -213,6 +217,10 @@ class InfiniSectionMemory(InfiniMemory):
         z: torch.Tensor,                  # [B, d]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Returns (enhanced_page [B,dim], M_new, z_new)."""
+        if not self.use_boundary_gate:
+            # A7: no boundary-aware update masking.
+            return self.forward(page_repr, M, z)
+
         b_soft = F.softmax(boundary_logits, dim=-1)
         gate_input = torch.cat([page_repr, b_soft], dim=-1)
         update_mask = self.boundary_gate(gate_input).squeeze(-1)  # [B]

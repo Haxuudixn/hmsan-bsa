@@ -1,0 +1,300 @@
+{
+ "name": "path3_clean_rerun",
+ "created": "2026-09-27",
+ "supersedes": "experiments/path3_manifest.json",
+ "why": "Plan A (cold start, no --init_from) on the clean split. Supersedes the 2026-09-21 matrix, whose rows warm-started from outputs/hmsan_bsa_ft3/best_model.pt (a 35-epoch converged solution of the full architecture) and whose split let source PDFs straddle the boundary. See docs/path3_clean_rerun_plan_2026-09-25.md.",
+ "runner": {
+  "script": "scripts/paper/run_matrix.py",
+  "note": "Cross-platform replacement for run_comparison.ps1 so the matrix can run on a rented Linux GPU. run_comparison.ps1 stays the Windows/DirectML-side reference; this file is the protocol of record.",
+  "windows_reference": "run_train_final.ps1 -PrintOnly prints the exact argv this runner must reproduce"
+ },
+ "protocol": {
+  "dataset": "C:\\Users\\Administrator\\Desktop\\训练数据\\final_train",
+  "dataset_zip_count": 38,
+  "dataset_bytes": 39576859849,
+  "data_fingerprint": "aa3cb23bcddcc621",
+  "data_fingerprint_how": "sha256 over sorted '<name><size>' for every training_data_*.zip, first 16 hex; reproduce with scripts/verify_split_clean.py. This must match on the rented machine or the split is not the frozen one.",
+  "label_config": "configs/labels.yaml",
+  "num_classes": 19,
+  "split": {
+   "seed": 42,
+   "train_ratio": 0.7,
+   "val_ratio": 0.15,
+   "corpus_segments": 434,
+   "corpus_blocks": 456602,
+   "corpus_source_pdfs": 132,
+   "segments": {
+    "train": 306,
+    "val": 66,
+    "test": 62
+   },
+   "source_pdfs": {
+    "train": 95,
+    "val": 20,
+    "test": 17
+   },
+   "straddling_pdfs": 0
+  },
+  "init": "cold start: --init_from is NEVER passed on any row (decision D1 = plan A)",
+  "text_freeze": false,
+  "image_freeze": true,
+  "amp": "bf16",
+  "batch_size": 1,
+  "max_blocks_per_sample": 3000,
+  "max_pages_per_sample": 150,
+  "encoder_lr": 2e-05,
+  "head_lr": 0.0001,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "scheduler": "plateau",
+  "dropout": 0.1,
+  "class_weight_mode": "inverse",
+  "class_weight_mode_note": "The 2026-09-21 manifest used 'none'. The reported metric is macro F1 over 19 classes and class 11 has 97 labelled blocks out of 310k, so an unweighted objective tanks exactly the metric being reported. Every clean row uses 'inverse' - this differs from the old matrix on purpose and must be stated in the paper.",
+  "val_every_steps": 75,
+  "early_stop_patience": 0,
+  "ckpt_every_steps": 25,
+  "num_workers": 0,
+  "num_workers_note": "0 keeps zip reads and PNG decodes serial with GPU compute. Fine on the RTX 3060, wasteful on a rented 4090/A100 - calibrate with stage 1 and raise to 4-8 if it pays.",
+  "epochs": null,
+  "epochs_note": "null means 'decided by D2'. The stage-2 pilot reads it off the mid-epoch curve; until then every matrix row must be launched with an explicit --epochs."
+ },
+ "test_policy": "The test split is NEVER touched during stages 1-4. One single test pass is run after the matrix ends, on the frozen best/last checkpoints only.",
+ "runs": [
+  {
+   "id": "stage1_smoke_full",
+   "group": "stage1_smoke",
+   "ablation_preset": "full",
+   "epochs": 1,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 1,
+   "note": "GATE. Must print 'COLD START', 'Split: train=306, val=66, test=62', record a mid_epoch entry carrying boundary+section+section_start_f1, end with result status=completed, and leave no Traceback / OOM / 'mat2 is on cpu'. Nothing downstream starts until this is green. Also the calibration run for num_workers and for s/it."
+  },
+  {
+   "id": "stage2_pilot_full_seed42",
+   "group": "stage2_pilot",
+   "ablation_preset": "full",
+   "epochs": 8,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 2,
+   "note": "Sets D2 (the epoch budget) and the run-to-run noise floor. 8 epochs, not the 6 the overnight plan originally capped at: that cap existed only because the local box could not finish more before 08:00, and on a rented card the full curve is cheap. Input to D2: the step where val accuracy peaks, and whether accuracy is still climbing at epoch 8."
+  },
+  {
+   "id": "full",
+   "group": "architecture",
+   "ablation_preset": "full",
+   "epochs": null,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 3,
+   "core": true,
+   "note": "Reference row: all gates on. Every ablation delta is read against this row at the same budget."
+  },
+  {
+   "id": "A11_no_gates",
+   "group": "architecture",
+   "ablation_preset": "A11_no_gates",
+   "epochs": null,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 4,
+   "core": true,
+   "note": "All gates off - the 'is the gating stack needed at all' row."
+  },
+  {
+   "id": "A2_no_g2",
+   "group": "architecture",
+   "ablation_preset": "A2_no_g2",
+   "epochs": null,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 5,
+   "core": true,
+   "note": "G2 value gate."
+  },
+  {
+   "id": "A6_no_page_memory",
+   "group": "architecture",
+   "ablation_preset": "A6_no_page_memory",
+   "epochs": null,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 6,
+   "core": true,
+   "note": "Drops the Infini page memory."
+  },
+  {
+   "id": "A7_no_boundary_gate",
+   "group": "architecture",
+   "ablation_preset": "A7_no_boundary_gate",
+   "epochs": null,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 7,
+   "core": true,
+   "note": "Drops the boundary-aware reset."
+  },
+  {
+   "id": "A10_dense",
+   "group": "architecture",
+   "ablation_preset": "A10_dense",
+   "epochs": null,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 8,
+   "core": true,
+   "note": "Dense attention upper bound. Doubles as baseline B4 (free - no separate run needed)."
+  },
+  {
+   "id": "delivered",
+   "group": "paper_main",
+   "ablation_preset": "full",
+   "epochs": null,
+   "epochs_min": 8,
+   "seed": 42,
+   "vit_cache": true,
+   "order": 9,
+   "note": "Paper main model. Same architecture as 'full' but on the long schedule, so it cannot be collapsed into the 'full' row. It has to be re-run clean because the published test numbers (0.9167 / 0.8854) came from a warm-started checkpoint. Its budget must be >= the matrix budget, and the old run was 8 epochs."
+  },
+  {
+   "id": "b1_roberta_mlp",
+   "group": "baselines",
+   "baseline": "b1",
+   "epochs": 8,
+   "epochs_note": "2026-09-30 correction: the delivered row ran 8 epochs (its result.json says 8 and history.json has 8 records), not the 3 this manifest declared. 3 would not be comparable with the 8-epoch main model.",
+   "seed": 42,
+   "order": 10,
+   "note": "Baseline: fine-tuned RoBERTa -> per-block MLP. No page hierarchy, no layout, no image. Script: scripts/paper/baselines.py (NOT train.py)."
+  },
+  {
+   "id": "b2_roberta_layout_mlp",
+   "group": "baselines",
+   "baseline": "b2",
+   "epochs": 8,
+   "epochs_note": "2026-09-30 correction: same as b1 - the delivered row ran 8 epochs, not 3.",
+   "seed": 42,
+   "order": 11,
+   "note": "Baseline: [fine-tuned RoBERTa + layout features] -> MLP."
+  },
+  {
+   "id": "b3_page_bigru",
+   "group": "baselines",
+   "baseline": "b3",
+   "epochs": 8,
+   "epochs_note": "2026-09-30 correction: same as b1 - the delivered row ran 8 epochs, not 3. Note this row also evaluates on 59,043 val blocks, not 64,788, because baselines.py truncates pages at max_blocks_per_page=48.",
+   "seed": 42,
+   "order": 12,
+   "note": "Baseline: in-page block sequence BiGRU, fine-tuned. Directly tests page-level modelling against in-page order modelling."
+  },
+  {
+   "id": "A2_no_g2_s43",
+   "group": "seed_replication",
+   "ablation_preset": "A2_no_g2",
+   "epochs": 8,
+   "seed": 43,
+   "vit_cache": true,
+   "order": 21,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A2_no_g2. Base row: A2_no_g2 (A2 value gate (G2).)"
+  },
+  {
+   "id": "A6_no_page_memory_s43",
+   "group": "seed_replication",
+   "ablation_preset": "A6_no_page_memory",
+   "epochs": 8,
+   "seed": 43,
+   "vit_cache": true,
+   "order": 22,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A6_no_page_memory. Base row: A6_no_page_memory (Infini page memory.)"
+  },
+  {
+   "id": "A7_no_boundary_gate_s43",
+   "group": "seed_replication",
+   "ablation_preset": "A7_no_boundary_gate",
+   "epochs": 8,
+   "seed": 43,
+   "vit_cache": true,
+   "order": 23,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A7_no_boundary_gate. Base row: A7_no_boundary_gate (sequential-memory write gate.)"
+  },
+  {
+   "id": "A10_dense_s43",
+   "group": "seed_replication",
+   "ablation_preset": "A10_dense",
+   "epochs": 8,
+   "seed": 43,
+   "vit_cache": true,
+   "order": 24,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A10_dense. Base row: A10_dense (gated fusion replaced by a plain dense fusion (= baseline B4).)"
+  },
+  {
+   "id": "A2_no_g2_s44",
+   "group": "seed_replication",
+   "ablation_preset": "A2_no_g2",
+   "epochs": 8,
+   "seed": 44,
+   "vit_cache": true,
+   "order": 25,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A2_no_g2. Base row: A2_no_g2 (A2 value gate (G2).)"
+  },
+  {
+   "id": "A6_no_page_memory_s44",
+   "group": "seed_replication",
+   "ablation_preset": "A6_no_page_memory",
+   "epochs": 8,
+   "seed": 44,
+   "vit_cache": true,
+   "order": 26,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A6_no_page_memory. Base row: A6_no_page_memory (Infini page memory.)"
+  },
+  {
+   "id": "A7_no_boundary_gate_s44",
+   "group": "seed_replication",
+   "ablation_preset": "A7_no_boundary_gate",
+   "epochs": 8,
+   "seed": 44,
+   "vit_cache": true,
+   "order": 27,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A7_no_boundary_gate. Base row: A7_no_boundary_gate (sequential-memory write gate.)"
+  },
+  {
+   "id": "A10_dense_s44",
+   "group": "seed_replication",
+   "ablation_preset": "A10_dense",
+   "epochs": 8,
+   "seed": 44,
+   "vit_cache": true,
+   "order": 28,
+   "core": false,
+   "note": "Grey-zone seed replication. Its single-seed seed-42 delta sits inside the 1-3 pp grey band of the pre-registered rule (D7), so the row cannot be called a real effect until it is repeated. Everything except the seed is identical to A10_dense. Base row: A10_dense (gated fusion replaced by a plain dense fusion (= baseline B4).)"
+  }
+ ],
+ "deferred": [
+  "A1_no_g1 / A3_fixed_k / A4_no_gated_fusion / A5_standard_ffn / A8_no_interpage_gate / A9_local_window and frozen_both - held back until the core rows land (decision D3)",
+  "both_unfrozen and image_unfrozen - 12 GB VRAM wall / never started; do not resume",
+  "seed 43/44 error bars - stage 4, after D2 is known"
+ ],
+ "cache": {
+  "tool": "scripts/paper/build_vit_cache.py",
+  "verifier": "scripts/paper/verify_vit_cache.py",
+  "default_dir": "cache/google__vit-base-patch16-224-bf16",
+  "bytes": 254000000,
+  "note": "Ship this directory with the code. It is only ~240 MB and saves roughly 48 min per cached epoch; rebuilding it on the rented card costs ~38 min of paid GPU. Include failed.txt - the undecodable keys are part of the frozen behaviour."
+ },
+ "artifacts_per_run": [
+  "run_meta.json",
+  "train.log",
+  "history.json",
+  "best_model.pt",
+  "last.pt",
+  "result.json"
+ ],
+ "seed_replication_note": "Added 2026-10-02 at the user's request: A2_no_g2 / A6_no_page_memory / A7_no_boundary_gate / A10_dense each get seeds 43 and 44 at the frozen 8-epoch budget, because their seed-42 deltas all fall in the grey band (table 2: -2.22 / +1.69 / -2.80 / -1.32 pp macro F1). Measured cost on the rented 4090 is 10.25-11.82 h per row, so all eight rows are ~86 h of GPU; the queue is resumable and skips finished rows. D7 stands - seeds are never enqueued automatically, these exist because the user asked for them."
+}

@@ -1,0 +1,86 @@
+{
+ "settings": {
+  "text_frozen_image_frozen": {
+   "text_freeze": true,
+   "image_freeze": true,
+   "parameters_total": 191169859,
+   "parameters_trainable": 2512963,
+   "parameters_frozen": 188656896
+  },
+  "text_trained_image_frozen": {
+   "text_freeze": false,
+   "image_freeze": true,
+   "parameters_total": 191169859,
+   "parameters_trainable": 104780611,
+   "parameters_frozen": 86389248
+  },
+  "text_frozen_image_trained": {
+   "text_freeze": true,
+   "image_freeze": false,
+   "parameters_total": 191169859,
+   "parameters_trainable": 88902211,
+   "parameters_frozen": 102267648
+  },
+  "both_trained": {
+   "text_freeze": false,
+   "image_freeze": false,
+   "parameters_total": 191169859,
+   "parameters_trainable": 191169859,
+   "parameters_frozen": 0
+  }
+ },
+ "modules_text_frozen_image_frozen": {
+  "block_encoder.text_encoder": {
+   "parameters_total": 102267648,
+   "parameters_trainable": 0
+  },
+  "block_encoder.image_encoder": {
+   "parameters_total": 86389248,
+   "parameters_trainable": 0
+  },
+  "block_encoder.layout_encoder": {
+   "parameters_total": 4880,
+   "parameters_trainable": 4880
+  },
+  "block_encoder.fusion_gate": {
+   "parameters_total": 106624,
+   "parameters_trainable": 106624
+  },
+  "block_encoder.fusion_norm": {
+   "parameters_total": 256,
+   "parameters_trainable": 256
+  },
+  "block_encoder.layout_proj": {
+   "parameters_total": 8320,
+   "parameters_trainable": 8320
+  },
+  "page_encoder": {
+   "parameters_total": 727688,
+   "parameters_trainable": 727688
+  },
+  "page_memory": {
+   "parameters_total": 98560,
+   "parameters_trainable": 98560
+  },
+  "section_memory": {
+   "parameters_total": 115713,
+   "parameters_trainable": 115713
+  },
+  "inter_page_attn": {
+   "parameters_total": 99200,
+   "parameters_trainable": 99200
+  },
+  "boundary_head": {
+   "parameters_total": 17028,
+   "parameters_trainable": 17028
+  },
+  "classification_head": {
+   "parameters_total": 18963,
+   "parameters_trainable": 18963
+  },
+  "section_head": {
+   "parameters_total": 35347,
+   "parameters_trainable": 35347
+  }
+ }
+}

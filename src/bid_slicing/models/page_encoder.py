@@ -1,9 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+
+from bid_slicing.models.ablation import AblationFlags
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -35,6 +37,8 @@ class GatedSparseLocalAttention(nn.Module):
         indexer_dim: int = 32,
         num_global: int = 4,
         dropout: float = 0.1,
+        flags: AblationFlags | None = None,
+        **kwargs,  # absorb the legacy `window_size` argument
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim must be divisible by num_heads"
@@ -43,6 +47,7 @@ class GatedSparseLocalAttention(nn.Module):
         self.head_dim = dim // num_heads
         self.scale = self.head_dim ** 0.5
         self.num_global = num_global
+        self.flags = flags or AblationFlags()
 
         # ── SDPA projections ──
         self.q_proj = nn.Linear(dim, dim)
@@ -51,20 +56,25 @@ class GatedSparseLocalAttention(nn.Module):
         self.out_proj = nn.Linear(dim, dim)
 
         # ── G1: Output Gate (element-wise sigmoid) ──
-        self.g1_proj = nn.Linear(dim, dim)
+        if self.flags.g1_output_gate:
+            self.g1_proj = nn.Linear(dim, dim)
 
         # ── G2: Value Gate (modulate values before aggregation) ──
-        self.g2_proj = nn.Linear(dim, dim)
+        if self.flags.g2_value_gate:
+            self.g2_proj = nn.Linear(dim, dim)
 
         # ── Gated Lightning Indexer ──
         # Low-dimensional projections for cheap all-pair scoring
         # I(s) = Σ_j σ(w_j) · σ(q_j · k_s + b_j)
+        # Only the GSA attention mode needs the indexer; local-window and dense
+        # modes do not allocate it.
         self.indexer_dim = indexer_dim
         self.indexer_heads = indexer_heads
-        self.W_iq = nn.Parameter(torch.randn(indexer_heads, dim, indexer_dim) * 0.02)
-        self.W_ik = nn.Parameter(torch.randn(indexer_heads, dim, indexer_dim) * 0.02)
-        self.W_iw = nn.Parameter(torch.randn(indexer_heads, dim) * 0.02)
-        self.b_i = nn.Parameter(torch.zeros(indexer_heads))
+        if self.flags.attention_mode == "gsa":
+            self.W_iq = nn.Parameter(torch.randn(indexer_heads, dim, indexer_dim) * 0.02)
+            self.W_ik = nn.Parameter(torch.randn(indexer_heads, dim, indexer_dim) * 0.02)
+            self.W_iw = nn.Parameter(torch.randn(indexer_heads, dim) * 0.02)
+            self.b_i = nn.Parameter(torch.zeros(indexer_heads))
 
         # ── Adaptive Sparsity ──
         self.k_base = k_base
@@ -119,16 +129,59 @@ class GatedSparseLocalAttention(nn.Module):
         High variance → confident → prune aggressively (smaller k).
         Low variance → ambiguous → retain more context (larger k).
         """
-        if not self.training:
+        if not self.training or not self.flags.adaptive_sparsity:
             return self.k_base
 
         with torch.no_grad():
             # Variance over the scored dimension per item
-            var = scores.var(dim=-1).mean().item()
+            var = scores.var(dim=-1, unbiased=False).mean().item()
             new_ema = self.ema_decay * self.ema_var + (1 - self.ema_decay) * var; self.ema_var = new_ema.detach()
             ratio = var / (new_ema.item() + 1e-8)
             k = int(round(self.k_base * ratio))
             return max(self.k_min, min(self.k_max, k))
+
+    # ── Mask builders ──
+
+    def _gsa_mask(
+        self, x: torch.Tensor, B: int, H: int, S: int, G: int, N: int
+    ) -> torch.Tensor | None:
+        """Gated lightning indexer → top-k block selection.
+
+        Global tokens always attend everything; block tokens attend all global
+        tokens plus the top-k blocks ranked by the indexer.  Returns None when
+        k covers the whole page (no masking needed).
+        """
+        indexer_scores = self._indexer_scores(x)          # [B, S, S]
+        block_scores = indexer_scores[:, G:, G:]          # [B, N, N]
+        k_val = min(self._adaptive_k(block_scores), N)
+
+        if k_val >= N:
+            return None
+
+        mask = torch.ones(B, H, S, S, device=x.device, dtype=torch.bool)
+        for b in range(B):
+            scores_b = indexer_scores[b]
+            for i in range(G, S):
+                block_only = scores_b[i, G:]
+                _, top_k_idx = torch.topk(block_only, k_val)
+                row_mask = torch.zeros(S, device=x.device, dtype=torch.bool)
+                row_mask[:G] = True
+                row_mask[top_k_idx + G] = True
+                mask[b, :, i, :] = mask[b, :, i, :] & row_mask.unsqueeze(0)
+        return mask
+
+    def _local_window_mask(
+        self, B: int, H: int, S: int, G: int, N: int, device
+    ) -> torch.Tensor:
+        """Fixed sliding window of ±local_window blocks (+ all global tokens)."""
+        w = self.flags.local_window
+        mask = torch.zeros(B, H, S, S, device=device, dtype=torch.bool)
+        mask[:, :, :G, :] = True                    # globals attend everything
+        mask[:, :, G:, :G] = True                   # blocks attend all globals
+        idx = torch.arange(N, device=device)
+        near = (idx[:, None] - idx[None, :]).abs() <= w
+        mask[:, :, G:, G:] = near
+        return mask
 
     # ── Forward ──
 
@@ -144,46 +197,21 @@ class GatedSparseLocalAttention(nn.Module):
         v = self.v_proj(x).view(B, S, H, self.head_dim).transpose(1, 2)
 
         # ── G2: Value Gate (paper Eq. 9) ──
-        g2 = torch.sigmoid(self.g2_proj(x))  # [B, S, D]
-        g2_v = g2.view(B, S, H, self.head_dim).transpose(1, 2)
-        v = v * g2_v
+        if self.flags.g2_value_gate:
+            g2 = torch.sigmoid(self.g2_proj(x))  # [B, S, D]
+            g2_v = g2.view(B, S, H, self.head_dim).transpose(1, 2)
+            v = v * g2_v
 
         # ── Compute all-pair attention ──
         attn = torch.matmul(q, k.transpose(-2, -1)) / self.scale  # [B, H, S, S]
 
-        if N > 0:
-            # ── Gated Lightning Indexer for block tokens ──
-            indexer_scores = self._indexer_scores(x)  # [B, S, S]
-
-            # Adaptive k
-            # Only look at block→block portion for variance
-            block_scores = indexer_scores[:, G:, G:]  # [B, N, N]
-            k_val = self._adaptive_k(block_scores)
-            k_val = min(k_val, N)  # can't select more than N
-
-            # Build sparse mask
-            # Global tokens: full attention (no masking)
-            mask = torch.ones(B, H, S, S, device=x.device, dtype=torch.bool)
-
-            if k_val < N:
-                for b in range(B):
-                    # Block → all: select top-k from indexer scores
-                    scores_b = indexer_scores[b]  # [S, S]
-                    for i in range(G, S):
-                        # For position i (block), select top-k based on indexer
-                        # Exclude global tokens from top-k selection (they're always attended)
-                        block_only = scores_b[i, G:]  # [N]
-                        # Select additional top-k beyond globals
-                        _, top_k_idx = torch.topk(block_only, k_val)
-                        # Map back to full sequence indices
-                        full_idx = top_k_idx + G
-                        # Set mask: attend to globals + selected blocks
-                        row_mask = torch.zeros(S, device=x.device, dtype=torch.bool)
-                        row_mask[:G] = True        # always attend globals
-                        row_mask[full_idx] = True   # attend top-k blocks
-                        mask[b, :, i, :] = mask[b, :, i, :] & row_mask.unsqueeze(0)
-
-            attn = attn.masked_fill(~mask, float("-inf"))
+        if N > 0 and self.flags.attention_mode != "dense":
+            if self.flags.attention_mode == "local_window":
+                mask = self._local_window_mask(B, H, S, G, N, x.device)
+            else:
+                mask = self._gsa_mask(x, B, H, S, G, N)
+            if mask is not None:
+                attn = attn.masked_fill(~mask, float("-inf"))
 
         attn_weights = F.softmax(attn, dim=-1)
         attn_weights = self.dropout(attn_weights)
@@ -193,6 +221,8 @@ class GatedSparseLocalAttention(nn.Module):
         attn_out = self.out_proj(context)
 
         # ── G1: Output Gate (our existing gate, paper's G1) ──
+        if not self.flags.g1_output_gate:
+            return x + attn_out
         g1 = torch.sigmoid(self.g1_proj(x))
         return g1 * attn_out + (1.0 - g1) * x
 
@@ -208,15 +238,26 @@ class GatedFFN(nn.Module):
     out = W_out * h
     """
 
-    def __init__(self, dim: int = 128, expansion: int = 4, dropout: float = 0.1):
+    def __init__(
+        self,
+        dim: int = 128,
+        expansion: int = 4,
+        dropout: float = 0.1,
+        gated: bool = True,
+    ):
         super().__init__()
         hidden = dim * expansion
+        self.gated = gated
         self.w_gate = nn.Linear(dim, hidden)
-        self.w_value = nn.Linear(dim, hidden)
+        if gated:
+            self.w_value = nn.Linear(dim, hidden)
         self.w_out = nn.Linear(hidden, dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.gated:
+            # Standard FFN (GELU, no multiplicative gate); w_value not allocated.
+            return self.dropout(self.w_out(F.gelu(self.w_gate(x))))
         gated = F.gelu(self.w_gate(x)) * self.w_value(x)
         return self.dropout(self.w_out(gated))
 
@@ -235,18 +276,21 @@ class PageTransformerLayer(nn.Module):
         k_base: int = 16,
         num_global: int = 4,
         dropout: float = 0.1,
+        flags: AblationFlags | None = None,
     ):
         super().__init__()
+        self.flags = flags or AblationFlags()
         self.attn = GatedSparseLocalAttention(
             dim=dim,
             num_heads=num_heads,
             k_base=k_base,
             num_global=num_global,
             dropout=dropout,
+            flags=self.flags,
         )
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
-        self.ffn = GatedFFN(dim=dim, dropout=dropout)
+        self.ffn = GatedFFN(dim=dim, dropout=dropout, gated=self.flags.gated_ffn)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.norm1(x))
@@ -274,11 +318,13 @@ class PageEncoder(nn.Module):
         k_base: int = 16,
         num_global: int = 4,
         dropout: float = 0.1,
+        flags: AblationFlags | None = None,
         **kwargs,  # absorb legacy args (window_size, etc.)
     ):
         super().__init__()
         self.dim = dim
         self.num_global = num_global
+        self.flags = flags or AblationFlags()
 
         self.global_tokens = nn.Parameter(torch.randn(num_global, dim) * 0.02)
 
@@ -289,6 +335,7 @@ class PageEncoder(nn.Module):
                 k_base=k_base,
                 num_global=num_global,
                 dropout=dropout,
+                flags=self.flags,
             )
             for _ in range(num_layers)
         ])
@@ -326,19 +373,22 @@ class GatedInterPageAttention(nn.Module):
         num_heads: int = 4,
         window: int = 3,
         dropout: float = 0.1,
+        gated: bool = True,
     ):
         super().__init__()
         self.window = window
+        self.gated = gated
         self.mha = nn.MultiheadAttention(
             embed_dim=dim,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True,
         )
-        self.gate = nn.Sequential(
-            nn.Linear(dim * 2, dim),
-            nn.Sigmoid(),
-        )
+        if gated:
+            self.gate = nn.Sequential(
+                nn.Linear(dim * 2, dim),
+                nn.Sigmoid(),
+            )
         self.norm = nn.LayerNorm(dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -354,6 +404,8 @@ class GatedInterPageAttention(nn.Module):
         attn_out, _ = self.mha(query, page_history, page_history)
         attn_out = attn_out.squeeze(1)
 
+        if not self.gated:
+            return self.norm(page_repr + attn_out)
         g = self.gate(torch.cat([page_repr, attn_out], dim=-1))
         return self.norm(g * attn_out + (1.0 - g) * page_repr)
 

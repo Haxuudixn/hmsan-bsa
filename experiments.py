@@ -20,72 +20,45 @@ from bid_slicing.data.dataset import (
     collate_document,
 )
 from bid_slicing.models.hmsan_bsa import HMSAN_BSA
+from bid_slicing.models.ablation import AblationFlags, PRESETS, resolve_preset
 from bid_slicing.data.label_schema import LabelSchema
 from train import train_epoch, validate, set_seed
 
 
-EXPERIMENTS = {
-    "full": {
-        "name": "Full HMSAN-BSA",
-        "desc": "Complete model (baseline)",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
-    "no_g1": {
-        "name": "A1: -G1 Output Gate",
-        "desc": "Remove output gate from sparse attention",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
-    "no_g2": {
-        "name": "A2: -G2 Value Gate",
-        "desc": "Remove value modulation before attention aggregation",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
-    "fixed_sparse": {
-        "name": "A3: Fixed Sparsity (k=16)",
-        "desc": "Use fixed selection budget instead of adaptive",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
-    "no_gated_fusion": {
-        "name": "A4: -Gated Fusion",
-        "desc": "Replace gated fusion with concat+Linear",
-        "k_base": 16, "gated_fusion": False, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
-    "no_gated_ffn": {
-        "name": "A5: Standard FFN",
-        "desc": "Replace GLU FFN with standard FFN",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": False,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
-    "no_memory": {
-        "name": "A6: -Infini Memory",
-        "desc": "Remove all compressive memory",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": False, "boundary_gate": True, "gated_interpage": True,
-    },
-    "no_boundary_gate": {
-        "name": "A7: -Boundary Gate",
-        "desc": "Remove boundary-aware section update",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": False, "gated_interpage": True,
-    },
-    "no_interpage_gate": {
-        "name": "A8: -InterPage Gate",
-        "desc": "Remove gating from inter-page attention",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": False,
-    },
-    "local_window": {
-        "name": "A9: Local Window (w=10)",
-        "desc": "Replace GSA with fixed local window attention",
-        "k_base": 16, "gated_fusion": True, "gated_ffn": True,
-        "infini_memory": True, "boundary_gate": True, "gated_interpage": True,
-    },
+# Experiment name -> ablation preset.  The first ten names are the legacy
+# aliases from the original nine-experiment table; the rest have no equivalent.
+_EXPERIMENT_PRESETS = {
+    "full": "full",
+    "no_g1": "A1_no_g1",
+    "no_g2": "A2_no_g2",
+    "fixed_sparse": "A3_fixed_k",
+    "no_gated_fusion": "A4_no_gated_fusion",
+    "no_gated_ffn": "A5_standard_ffn",
+    "no_memory": "A6A7_no_memory",
+    "no_boundary_gate": "A7_no_boundary_gate",
+    "no_interpage_gate": "A8_no_interpage_gate",
+    "local_window": "A9_local_window",
+    "no_page_memory": "A6_no_page_memory",
+    "dense_attention": "A10_dense",
+    "no_gates": "A11_no_gates",
 }
+
+# Each entry carries the resolved AblationFlags that are actually handed to
+# HMSAN_BSA.  Before this, the switches in this file were never passed to the
+# model, so all nine "experiments" silently trained the identical architecture.
+EXPERIMENTS = {}
+for _exp_name, _preset_name in _EXPERIMENT_PRESETS.items():
+    _label, _preset_flags = resolve_preset(_preset_name)
+    EXPERIMENTS[_exp_name] = {
+        "name": _label,
+        "desc": _label,
+        "preset": _preset_name,
+        "flags": _preset_flags,
+        "k_base": 16,
+    }
+del _exp_name, _preset_name, _label, _preset_flags
+
+
 
 
 def run_experiment(
@@ -110,6 +83,8 @@ def run_experiment(
     print(f"Description: {exp_config['desc']}")
     print(f"{'='*60}")
 
+    flags = exp_config.get("flags") or resolve_preset(exp_config["preset"])[1]
+    print(f"Ablation flags: {flags.signature()}")
     model = HMSAN_BSA(
         text_encoder_name="hfl/chinese-roberta-wwm-ext",
         text_max_length=510,
@@ -129,6 +104,7 @@ def run_experiment(
         num_global_tokens=4,
         inter_page_window=3,
         dropout=0.1,
+        flags=flags,
     ).to(device)
 
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -161,7 +137,9 @@ def run_experiment(
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "val_accuracy": best_val_acc,
-                "config": exp_config,
+                "config": {k: v for k, v in exp_config.items() if k != "flags"},
+                "ablation_flags": flags.to_dict(),
+                "ablation_signature": flags.signature(),
             }, exp_dir / "best_model.pt")
 
     with open(exp_dir / "history.json", "w", encoding="utf-8") as f:
@@ -170,6 +148,7 @@ def run_experiment(
     return {
         "experiment": exp_name,
         "name": exp_config["name"],
+        "ablation_signature": flags.signature(),
         "best_val_acc": best_val_acc,
         "final_train_loss": history[-1]["train"]["loss"],
         "final_val_loss": history[-1]["val"]["val_loss"],

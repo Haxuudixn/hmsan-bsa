@@ -32,3 +32,12 @@ annotation_tool/index_broken_backup.html
 # Training data archives
 *.zip
 training_data_*/
+
+# Frozen-ViT feature cache (scripts/paper/build_vit_cache.py) - ~260 MB of memmap
+cache/
+cache_smoke/
+
+# Local run artifacts: pytest / verification logs and editor backups
+*.log
+*.bak*
+_*.txt

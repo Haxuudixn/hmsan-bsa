@@ -1,0 +1,405 @@
+--- hmsan-bsa/train.py	2026-09-27 23:04:09.370764167 +0800
++++ loopwork/train.py	2026-09-27 23:03:26.915464586 +0800
+@@ -30,6 +30,28 @@
+ 
+ _DEBUG_MEM = os.environ.get("HMSAN_DEBUG_MEM") == "1"
+ 
++# ── Allocator policy ──
++# This file used to call torch.cuda.empty_cache() after every optimizer step.
++# That hands the whole cached block range back to the driver, so the next step
++# pays fresh cudaMalloc round-trips for everything it had just freed. Its
++# purpose was to stop the allocator growing into host memory under sysmem
++# fallback on a 12 GB card; on a card with headroom the unused pool stays small
++# by itself. Keep the behaviour, drop the per-step cost: only release when the
++# unused pool has actually grown past the threshold.
++_EMPTY_CACHE_MB = int(os.environ.get("HMSAN_EMPTY_CACHE_MB", "2048"))
++
++
++def _maybe_empty_cache(force: bool = False) -> None:
++    """Release cached blocks only when the unused pool is genuinely large."""
++    if not torch.cuda.is_available():
++        return
++    if force:
++        torch.cuda.empty_cache()
++        return
++    unused = torch.cuda.memory_reserved() - torch.cuda.memory_allocated()
++    if unused > _EMPTY_CACHE_MB * 2 ** 20:
++        torch.cuda.empty_cache()
++
+ 
+ def parse_args():
+     p = argparse.ArgumentParser(description="Train HMSAN-BSA")
+@@ -40,6 +62,10 @@
+     p.add_argument("--label_config", type=str, default="configs/labels.yaml",
+                    help="Path to label YAML config")
+     p.add_argument("--epochs", type=int, default=40)
++    p.add_argument("--limit_train_steps", type=int, default=0,
++                   help="HARNESS ONLY (loop-equivalence check): stop the epoch "
++                        "after this many optimizer steps. 0 disables, and the "
++                        "paper protocol never sets it.")
+     p.add_argument("--lr", type=float, default=1e-3,
+                    help="Deprecated, use --encoder_lr/--head_lr")
+     p.add_argument("--encoder_lr", type=float, default=2e-5,
+@@ -333,22 +359,36 @@
+ 
+     valid_preds = preds[mask]
+     valid_targets = targets[mask]
++    n_valid = int(valid_preds.numel())
+ 
+-    acc = (valid_preds == valid_targets).float().mean().item()
++    acc = ((valid_preds == valid_targets).sum().item() / n_valid
++           if n_valid else 0.0)
+     result = {
+         "accuracy": acc,
+-        "valid_count": int(mask.sum().item()),
++        "valid_count": n_valid,
+         "total_count": int(targets.numel()),
+     }
+ 
+     if num_classes is not None:
++        # One confusion matrix on the tensor's own device, then a single host
++        # transfer. The counts are integers, so this is the same arithmetic the
++        # per-class boolean masks produced -- without 3*num_classes device
++        # synchronises per call. Out-of-range predictions still count towards
++        # accuracy but belong to no class row, exactly as the old masks did.
++        in_range = (valid_preds >= 0) & (valid_preds < num_classes)
++        flat = (valid_preds[in_range].to(torch.int64) * num_classes
++                + valid_targets[in_range].to(torch.int64))
++        conf = torch.bincount(
++            flat, minlength=num_classes * num_classes
++        ).reshape(num_classes, num_classes).cpu().tolist()
++
+         recalls = []
+         precisions = []
+         f1s = []
+         for c in range(num_classes):
+-            tp = int(((valid_preds == c) & (valid_targets == c)).sum().item())
+-            fp = int(((valid_preds == c) & (valid_targets != c)).sum().item())
+-            fn = int(((valid_preds != c) & (valid_targets == c)).sum().item())
++            tp = conf[c][c]
++            fp = sum(conf[c]) - tp
++            fn = sum(row[c] for row in conf) - tp
+             support = tp + fn
+             precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+             recall = tp / support if support > 0 else 0.0
+@@ -481,8 +521,12 @@
+     n_batches = 0
+     stop_requested = False
+ 
++    # Predictions and loss terms are accumulated on the device. Moving them to
++    # the host inside the per-page loop cost one full device synchronise per
++    # tensor, which drained the queue and left the card idle between steps.
+     all_cls_preds = []
+     all_cls_targets = []
++    step_losses = []  # one [4] fp32 vector per step: total/cls/bound/sec
+ 
+     for step_index, batch in enumerate(
+         tqdm(dataloader, desc="Training", leave=False), start=1
+@@ -498,14 +542,17 @@
+         if current_doc is not None:
+             current_doc[0] = batch["pdf_name"]
+         # Move to device
+-        block_type_ids = batch["block_type_ids"].to(device)
+-        bbox_norm = batch["bbox_norm"].to(device)
+-        font_size = batch["font_size"].to(device)
+-        is_bold = batch["is_bold"].to(device)
+-        is_italic = batch["is_italic"].to(device)
+-        font_color = batch["font_color"].to(device)
+-        labels = batch["labels"].to(device)
+-        boundaries = batch["boundaries"].to(device)
++        block_type_ids = batch["block_type_ids"].to(device, non_blocking=True)
++        bbox_norm = batch["bbox_norm"].to(device, non_blocking=True)
++        font_size = batch["font_size"].to(device, non_blocking=True)
++        is_bold = batch["is_bold"].to(device, non_blocking=True)
++        is_italic = batch["is_italic"].to(device, non_blocking=True)
++        font_color = batch["font_color"].to(device, non_blocking=True)
++        labels = batch["labels"].to(device, non_blocking=True)
++        boundaries = batch["boundaries"].to(device, non_blocking=True)
++        # The block encoder wants plain ints; fetch them once per document
++        # rather than once per page inside the encoder.
++        block_types = block_type_ids.cpu().tolist()
+         page_splits = batch["page_splits"]
+         _assert_tensors_on_device(
+             {
+@@ -531,6 +578,7 @@
+                 ocr_texts=batch["ocr_texts"],
+                 image_blocks=batch["image_blocks"],
+                 block_type_ids=block_type_ids,
++                block_types=block_types,
+                 bbox_norm=bbox_norm,
+                 font_size=font_size,
+                 is_bold=is_bold,
+@@ -572,8 +620,8 @@
+ 
+             # Track predictions (flatten per-page)
+             with torch.no_grad():
+-                all_cls_preds.append(bl.argmax(dim=-1).view(-1).cpu())
+-                all_cls_targets.append(page_labels.view(-1).cpu())
++                all_cls_preds.append(bl.argmax(dim=-1).view(-1))
++                all_cls_targets.append(page_labels.view(-1))
+ 
+         n_pages = len(output["block_logits"])
+         # Average per-page loss
+@@ -589,7 +637,7 @@
+         # Release the cached blocks of this document: with sysmem fallback the
+         # allocator would otherwise keep growing into host RAM across documents.
+         if device.type == "cuda":
+-            torch.cuda.empty_cache()
++            _maybe_empty_cache()
+ 
+         if _DEBUG_MEM and device.type == "cuda":
+             torch.cuda.synchronize()
+@@ -600,10 +648,11 @@
+                   flush=True)
+             torch.cuda.reset_peak_memory_stats()
+ 
+-        total_loss += total.item()
+-        total_cls_loss += avg_cls.item()
+-        total_bound_loss += avg_bound.item()
+-        total_sec_loss += avg_sec.item()
++        with torch.no_grad():
++            step_losses.append(
++                torch.stack((total.detach(), avg_cls.detach(),
++                             avg_bound.detach(), avg_sec.detach()))
++            )
+ 
+         # Mid-epoch hook: lets main() validate on a step cadence so the real
+         # optimum can be located instead of guessed from three epoch endpoints.
+@@ -612,10 +661,17 @@
+             break
+ 
+     # Compute metrics
+-    all_preds = torch.cat(all_cls_preds).view(-1)
+-    all_targets = torch.cat(all_cls_targets).view(-1)
++    all_preds = torch.cat(all_cls_preds).view(-1).cpu()
++    all_targets = torch.cat(all_cls_targets).view(-1).cpu()
+     metrics = compute_metrics(all_preds, all_targets, num_classes=num_classes)
+ 
++    # Summed in float64 on the device, then read back once.
++    loss_sums = (torch.stack(step_losses).double().sum(0) if step_losses
++                 else torch.zeros(4, dtype=torch.float64))
++    total_loss, total_cls_loss, total_bound_loss, total_sec_loss = (
++        loss_sums.tolist()
++    )
++
+     return {
+         "loss": total_loss / max(n_batches, 1),
+         "cls_loss": total_cls_loss / max(n_batches, 1),
+@@ -645,8 +701,10 @@
+ ) -> dict:
+     """Validate the model."""
+     model.eval()
+-    total_loss = 0.0
+     n_batches = 0
++    # Same device-side accumulation as train_epoch: validation used to do six
++    # host round-trips per page, which is why a val check cost minutes.
++    step_losses = []
+     all_cls_preds = []
+     all_cls_targets = []
+     all_bound_preds = []
+@@ -655,14 +713,17 @@
+     all_sec_targets = []
+ 
+     for batch in tqdm(dataloader, desc="Validation", leave=False):
+-        block_type_ids = batch["block_type_ids"].to(device)
+-        bbox_norm = batch["bbox_norm"].to(device)
+-        font_size = batch["font_size"].to(device)
+-        is_bold = batch["is_bold"].to(device)
+-        is_italic = batch["is_italic"].to(device)
+-        font_color = batch["font_color"].to(device)
+-        labels = batch["labels"].to(device)
+-        boundaries = batch["boundaries"].to(device)
++        block_type_ids = batch["block_type_ids"].to(device, non_blocking=True)
++        bbox_norm = batch["bbox_norm"].to(device, non_blocking=True)
++        font_size = batch["font_size"].to(device, non_blocking=True)
++        is_bold = batch["is_bold"].to(device, non_blocking=True)
++        is_italic = batch["is_italic"].to(device, non_blocking=True)
++        font_color = batch["font_color"].to(device, non_blocking=True)
++        labels = batch["labels"].to(device, non_blocking=True)
++        boundaries = batch["boundaries"].to(device, non_blocking=True)
++        # The block encoder wants plain ints; fetch them once per document
++        # rather than once per page inside the encoder.
++        block_types = block_type_ids.cpu().tolist()
+         page_splits = batch["page_splits"]
+         _assert_tensors_on_device(
+             {
+@@ -685,6 +746,7 @@
+                 ocr_texts=batch["ocr_texts"],
+                 image_blocks=batch["image_blocks"],
+                 block_type_ids=block_type_ids,
++                block_types=block_types,
+                 bbox_norm=bbox_norm,
+                 font_size=font_size,
+                 is_bold=is_bold,
+@@ -717,32 +779,34 @@
+             bound_loss += F.cross_entropy(bd, page_bound, ignore_index=IGNORE_INDEX)
+             section_target = _get_section_label(page_labels)
+             sec_loss += F.cross_entropy(sl, section_target, ignore_index=IGNORE_INDEX)
+-            all_cls_preds.append(bl.argmax(dim=-1).view(-1).cpu())
+-            all_cls_targets.append(page_labels.view(-1).cpu())
+-            all_bound_preds.append(bd.argmax(dim=-1).view(-1).cpu())
+-            all_bound_targets.append(page_bound.view(-1).cpu())
+-            all_sec_preds.append(sl.argmax(dim=-1).view(-1).cpu())
+-            all_sec_targets.append(section_target.view(-1).cpu())
++            all_cls_preds.append(bl.argmax(dim=-1).view(-1))
++            all_cls_targets.append(page_labels.view(-1))
++            all_bound_preds.append(bd.argmax(dim=-1).view(-1))
++            all_bound_targets.append(page_bound.view(-1))
++            all_sec_preds.append(sl.argmax(dim=-1).view(-1))
++            all_sec_targets.append(section_target.view(-1))
+ 
+         n_pages = len(output["block_logits"])
+         avg_cls = cls_loss / max(n_pages, 1)
+         avg_bound = bound_loss / max(n_pages, 1)
+         avg_sec = sec_loss / max(n_pages, 1)
+         total = avg_cls + alpha * avg_bound + beta * avg_sec
+-        total_loss += total.item()
++        step_losses.append(total.detach())
+         n_batches += 1
+ 
+-    all_preds = torch.cat(all_cls_preds).view(-1)
+-    all_targets = torch.cat(all_cls_targets).view(-1)
++    all_preds = torch.cat(all_cls_preds).view(-1).cpu()
++    all_targets = torch.cat(all_cls_targets).view(-1).cpu()
+     metrics = compute_metrics(all_preds, all_targets, num_classes=num_classes)
++    total_loss = (torch.stack(step_losses).double().sum().item()
++                  if step_losses else 0.0)
+ 
+     # The structural heads carry half the training objective (alpha = beta = 0.5)
+     # yet no metric for them existed anywhere in the pipeline. Both are
+     # page-level: one boundary call and one section call per page.
+-    bound_preds = torch.cat(all_bound_preds).view(-1)
+-    bound_targets = torch.cat(all_bound_targets).view(-1)
+-    sec_preds = torch.cat(all_sec_preds).view(-1)
+-    sec_targets = torch.cat(all_sec_targets).view(-1)
++    bound_preds = torch.cat(all_bound_preds).view(-1).cpu()
++    bound_targets = torch.cat(all_bound_targets).view(-1).cpu()
++    sec_preds = torch.cat(all_sec_preds).view(-1).cpu()
++    sec_targets = torch.cat(all_sec_targets).view(-1).cpu()
+     bound_metrics = compute_metrics(
+         bound_preds, bound_targets, num_classes=num_boundaries
+     )
+@@ -877,14 +941,21 @@
+     else:
+         print("Class weights: disabled")
+ 
+-    train_loader = DataLoader(
+-        train_ds, batch_size=1, shuffle=True,
+-        collate_fn=collate_document, num_workers=args.num_workers,
+-    )
+-    val_loader = DataLoader(
+-        val_ds, batch_size=1, shuffle=False,
+-        collate_fn=collate_document, num_workers=args.num_workers,
++    # pin_memory turns the per-step .to(device) into an async copy, and
++    # persistent_workers keeps the zip/PNG pipelines warm across epoch
++    # boundaries instead of re-forking them every epoch. Batch order is
++    # unaffected: shuffling happens in the main process.
++    loader_kwargs = dict(
++        batch_size=1, collate_fn=collate_document,
++        num_workers=args.num_workers,
++        pin_memory=(args.device.startswith("cuda")
++                    and torch.cuda.is_available()),
++        persistent_workers=args.num_workers > 0,
+     )
++    if args.num_workers > 0:
++        loader_kwargs["prefetch_factor"] = 4
++    train_loader = DataLoader(train_ds, shuffle=True, **loader_kwargs)
++    val_loader = DataLoader(val_ds, shuffle=False, **loader_kwargs)
+ 
+     # Model
+     ablation_flags = resolve_ablation_flags(args)
+@@ -1188,6 +1259,11 @@
+                 print(f"  [ckpt] last.pt written at ep{epoch_number} "
+                       f"step {steps_done}", flush=True)
+ 
++            # Harness-only cap: see --limit_train_steps.
++            if (args.limit_train_steps > 0
++                    and steps_done >= args.limit_train_steps):
++                stop_requested = True
++
+             return stop_requested
+         return on_step
+ 
+--- hmsan-bsa/src/bid_slicing/models/block_encoder.py	2026-09-22 07:51:00.000000000 +0800
++++ loopwork/src/bid_slicing/models/block_encoder.py	2026-09-27 23:48:09.143524643 +0800
+@@ -1,5 +1,12 @@
+ ﻿from __future__ import annotations
+ 
++import os
++
++# Block texts are encoded in length-sorted chunks. Sorting keeps padding waste
++# low, so this knob trades kernel-launch count against padded tokens; it is an
++# env var so the two can be compared without editing the file.
++_TEXT_CHUNK_SIZE = int(os.environ.get("HMSAN_TEXT_CHUNK", "32"))
++
+ from enum import IntEnum
+ from typing import Any
+ 
+@@ -111,7 +118,8 @@
+         self.fusion_norm = nn.LayerNorm(hidden_size)
+         self.fusion_dropout = nn.Dropout(dropout)
+ 
+-    def _encode_text_chunked(self, texts: list[str], chunk_size: int = 32) -> torch.Tensor:
++    def _encode_text_chunked(self, texts: list[str],
++                             chunk_size: int | None = None) -> torch.Tensor:
+         """Encode text blocks in chunks to limit peak GPU memory.
+ 
+         Blocks are sorted by character length before batching, so every chunk
+@@ -120,6 +128,8 @@
+         dominated by padding waste otherwise: block texts average ~14 tokens,
+         but a mixed-length chunk of 16 pads every row to the longest one.
+         """
++        if chunk_size is None:
++            chunk_size = _TEXT_CHUNK_SIZE
+         if len(texts) <= chunk_size:
+             return self.text_encoder(texts)
+         order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+@@ -214,6 +224,7 @@
+         is_italic: torch.Tensor,
+         font_color: torch.Tensor,
+         image_blocks: list[Any] | None = None,
++        block_types: list[int] | None = None,
+     ) -> torch.Tensor:
+         """Return block vectors [B, hidden_size].
+ 
+@@ -230,7 +241,11 @@
+         )  # [B, layout_output_dim]
+ 
+         # ── Determine block types ──
+-        bt = block_type_ids.cpu().tolist()
++        # `.cpu().tolist()` is a full device synchronise and this runs once per
++        # page; the caller already knows the ids for the whole document, so it
++        # can hand the list down and skip the round-trip.
++        bt = (block_types if block_types is not None
++              else block_type_ids.cpu().tolist())
+         text_idx = [i for i, t in enumerate(bt) if t == BlockType.TEXT]
+         image_idx = [i for i, t in enumerate(bt) if t == BlockType.IMAGE]
+         mixed_idx = [i for i, t in enumerate(bt) if t == BlockType.MIXED]
+--- hmsan-bsa/src/bid_slicing/models/hmsan_bsa.py	2026-09-21 18:57:38.000000000 +0800
++++ loopwork/src/bid_slicing/models/hmsan_bsa.py	2026-09-27 23:02:49.724066077 +0800
+@@ -147,6 +147,8 @@
+         section_M: torch.Tensor | None = None,    # [1, d, d]
+         section_z: torch.Tensor | None = None,    # [1, d]
+         page_history: torch.Tensor | None = None, # [1, T, dim]
++        block_types: list[int] | None = None,     # precomputed block-type ids,
++                                                  # avoids a per-page sync
+     ) -> dict[str, torch.Tensor | list[torch.Tensor]]:
+         """Process a document page-by-page, propagating compressed memory.
+ 
+@@ -196,6 +198,8 @@
+                     for b in p_image_blocks
+                 ]
+             p_bt = block_type_ids[prev_end:end]
++            p_bt_list = (block_types[prev_end:end]
++                         if block_types is not None else None)
+             p_bbox = bbox_norm[prev_end:end]
+             p_fs = font_size[prev_end:end]
+             p_bold = is_bold[prev_end:end]
+@@ -209,6 +213,7 @@
+                 images=p_images,
+                 image_blocks=p_image_blocks,
+                 block_type_ids=p_bt,
++                block_types=p_bt_list,
+                 bbox_norm=p_bbox,
+                 font_size=p_fs,
+                 is_bold=p_bold,

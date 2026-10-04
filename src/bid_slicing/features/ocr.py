@@ -30,10 +30,29 @@ def _to_image_array(image: Image.Image | np.ndarray) -> np.ndarray:
     return arr
 
 
-def _get_engine(use_gpu: bool = False) -> Any:
-    """Return the shared OCR engine (EasyOCR preferred)."""
+def _get_engine(use_gpu: bool = False, prefer_paddleocr: bool = False) -> Any:
+    """Return the shared OCR engine.
+
+    By default EasyOCR is preferred when available. Pass prefer_paddleocr=True
+    to force PaddleOCR (needed for inference parity with training data).
+    """
     global _engine, _engine_kind
     if _engine is not None:
+        if not prefer_paddleocr or _engine_kind == "paddleocr":
+            return _engine
+        _engine = None
+        _engine_kind = ""
+
+    if prefer_paddleocr:
+        from paddleocr import PaddleOCR
+        _engine = PaddleOCR(
+            lang="ch",
+            engine="onnxruntime",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+        )
+        _engine_kind = "paddleocr"
         return _engine
 
     # Try EasyOCR first: its ch_sim model is already cached locally.
@@ -53,18 +72,22 @@ def _get_engine(use_gpu: bool = False) -> Any:
     from paddleocr import PaddleOCR
     _engine = PaddleOCR(
         lang="ch",
+        engine="onnxruntime",
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_textline_orientation=False,
-        ocr_version="PP-OCRv4",
     )
     _engine_kind = "paddleocr"
     return _engine
 
 
-def extract_text(image: Image.Image | np.ndarray, use_gpu: bool = False) -> str:
+def extract_text(
+    image: Image.Image | np.ndarray,
+    use_gpu: bool = False,
+    prefer_paddleocr: bool = False,
+) -> str:
     """Extract text from a single image and join lines with newline."""
-    engine = _get_engine(use_gpu)
+    engine = _get_engine(use_gpu, prefer_paddleocr=prefer_paddleocr)
     arr = _to_image_array(image)
 
     if _engine_kind == "easyocr":
@@ -82,9 +105,10 @@ def extract_text(image: Image.Image | np.ndarray, use_gpu: bool = False) -> str:
 def extract_batch(
     images: list[Image.Image | np.ndarray],
     use_gpu: bool = False,
+    prefer_paddleocr: bool = False,
 ) -> list[str]:
     """Extract text from multiple images sequentially (safer for CPU)."""
-    engine = _get_engine(use_gpu)
+    engine = _get_engine(use_gpu, prefer_paddleocr=prefer_paddleocr)
     outputs: list[str] = []
 
     for image in images:

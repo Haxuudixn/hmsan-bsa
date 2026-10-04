@@ -1,0 +1,54 @@
+{
+ "schema": 1,
+ "assembled_by": "2026-10-04, from the sources named per row (no hand-typed metrics)",
+ "why": "参数量需要实例化模型才能算（不能靠读日志），而每轮训练时间无法从 history.json 重算（epoch 记录里没有耗时字段）。两者都逐行注明出处，供 make_thesis_draft.py 直接引用。",
+ "params_note": "参数量由本机 CPU 实例化 HMSAN_BSA / baselines.BlockClassifier / baselines.PageSequenceClassifier 得到；主模型与 docs/paper_materials/params.json 同源，并被 outputs/path3_matrix/frozen_both/result.json 的 params_trainable=2512963 交叉印证。",
+ "timing_note": "每轮训练时间只在同一台本机 RTX 3060 上可比；租用机上的 delivered/full 10 轮 11.9 h 是两行并发共享一张 4090，未采用。",
+ "rows": [
+  {
+   "id": "main",
+   "label": "HMSAN-BSA（full）",
+   "params_total": 191169859,
+   "params_trainable": 104780611,
+   "params_frozen": 86389248,
+   "non_text_trainable": 2512963,
+   "train_hours_per_epoch": 1.410,
+   "train_source": "outputs/path3_local_calib/delivered_ext16/run_meta.json：16 轮设置、自 ep8 权重 --resume 续跑，06:28:23 -> 17:45:09 = 11.279 h 跑完 ep9-16 共 8 轮；本机 RTX 3060",
+   "test_infer_seconds": 123.9,
+   "infer_source": "outputs/path3_diag/test_eval_clean.json: delivered/last, sets.test.inference_seconds"
+  },
+  {
+   "id": "b1",
+   "label": "B1 RoBERTa + 块级 MLP",
+   "params_total": 102469395,
+   "params_trainable": 102469395,
+   "params_frozen": 0,
+   "train_hours_per_epoch": 0.924,
+   "train_source": "outputs/path3_local_calib/b1_roberta_mlp_invw/result.json：8 轮 / 7.39 h；本机 RTX 3060",
+   "test_infer_seconds": 42.3,
+   "infer_source": "outputs/path3_diag/test_eval_baselines.json: b1|b1_roberta_mlp|last.pt|cap48, sets.test.inference_seconds"
+  },
+  {
+   "id": "b2",
+   "label": "B2 RoBERTa + 布局 + MLP",
+   "params_total": 102472979,
+   "params_trainable": 102472979,
+   "params_frozen": 0,
+   "train_hours_per_epoch": 1.843,
+   "train_source": "outputs/path3_local_calib/b2_roberta_layout_mlp_invw/result.json：8 轮 / 14.74 h；本机 RTX 3060",
+   "test_infer_seconds": 48.5,
+   "infer_source": "outputs/path3_diag/test_eval_baselines.json: b2|b2_roberta_layout_mlp|last.pt|cap48, sets.test.inference_seconds"
+  },
+  {
+   "id": "b3",
+   "label": "B3 页内 BiGRU",
+   "params_total": 102962195,
+   "params_trainable": 102962195,
+   "params_frozen": 0,
+   "train_hours_per_epoch": 1.333,
+   "train_source": "outputs/path3_local_calib/b3_page_bigru_cap3000/result.json：3 轮 / 14393.2 s；本机 RTX 3060",
+   "test_infer_seconds": 106.4,
+   "infer_source": "outputs/path3_diag/test_eval_baselines.json: b3|b3_page_bigru|last.pt|cap3000, sets.test.inference_seconds"
+  }
+ ]
+}

@@ -1,0 +1,201 @@
+{
+ "schema": 1,
+ "data_dir": "/root/autodl-tmp/final_train",
+ "pattern": "training_data_*.zip",
+ "file_count": 38,
+ "total_bytes": 39576859849,
+ "total_gib": 36.859,
+ "aggregate_sha256": "b21e6a34b703f58df99b300cb33eee94f54603999b1d180ecfeb9e78840a0491",
+ "files": [
+  {
+   "name": "training_data_2026-08-04 (1).zip",
+   "bytes": 205858504,
+   "sha256": "5beab47dd01cd5c401c862e9fa6e8e8e629dfbcb2493ea62e16f2cd48fcf8f75"
+  },
+  {
+   "name": "training_data_2026-08-04.zip",
+   "bytes": 113302486,
+   "sha256": "53851c95bf42f2ffc24b78c35954b060cdcec1bb3900903569030775875f1202"
+  },
+  {
+   "name": "training_data_2026-08-08 (1).zip",
+   "bytes": 520087049,
+   "sha256": "59cf4824fbacd20b60cf2c47d80d9d94934bfa8d8c5e5a9a1ab27ebc1f170c87"
+  },
+  {
+   "name": "training_data_2026-08-08 (2).zip",
+   "bytes": 1017202269,
+   "sha256": "6c40b8ad535e771fa788814f06cbb11bf1997ed6b3f96752ab83e61c90e02eba"
+  },
+  {
+   "name": "training_data_2026-08-08.zip",
+   "bytes": 623937131,
+   "sha256": "2ae8f22d192053c0ce8aa2f93197d4ef93f623c14c01eb7eeaacfc22f1be2fbb"
+  },
+  {
+   "name": "training_data_2026-08-16 (2).zip",
+   "bytes": 994403112,
+   "sha256": "90c36bdd8ac1688f36b09c1d0c2d70570379f12672aeb5c7dd1bc820086c7473"
+  },
+  {
+   "name": "training_data_2026-08-16(3).zip",
+   "bytes": 3852863503,
+   "sha256": "980093dd8bdb5f0aa6a4bde4bc9859ba2e04f571b3c19abe97fefe7ac8a7dfb2"
+  },
+  {
+   "name": "training_data_2026-08-16.zip",
+   "bytes": 1201475220,
+   "sha256": "429fa7dfd32c877bf2a0a4aa79f59fa6f84ba28e4d3a0203766a949e2d6c4bd3"
+  },
+  {
+   "name": "training_data_2026-08-19.zip",
+   "bytes": 1533533949,
+   "sha256": "056f84dda61e857acabd79c26049a1a1dbd02e1dc8d97bc4a017124ad42b6edf"
+  },
+  {
+   "name": "training_data_2026-08-27 (1).zip",
+   "bytes": 218964685,
+   "sha256": "f44eb6b8eca773257fadf90c5ad378f06cb1fb3126fef3c280cfc5b77155f974"
+  },
+  {
+   "name": "training_data_2026-08-27 (2).zip",
+   "bytes": 1694793410,
+   "sha256": "842a0863560e6eb9799f6b59ea47abeaaac754f585085e5a7d653b6d26d4b81b"
+  },
+  {
+   "name": "training_data_2026-08-27-usbkey.zip",
+   "bytes": 127956317,
+   "sha256": "b0be8e69b7d61996c606c72a253702e4e6f22e50245e2526bd742095a08775b2"
+  },
+  {
+   "name": "training_data_2026-08-27.zip",
+   "bytes": 645225936,
+   "sha256": "a6aa24d1b9a9da36cf3a2afe7458b6a7ac1964532152fae6e73ef2bfb77b3d69"
+  },
+  {
+   "name": "training_data_2026-08-27_2.zip",
+   "bytes": 718169309,
+   "sha256": "36842774b1cacfbeea1c6f3dc1b32a449565f73c0078a0073aa9465ae58757da"
+  },
+  {
+   "name": "training_data_2026-08-31.zip",
+   "bytes": 487968738,
+   "sha256": "55d3df7d4e7e5833c15f7938448c38c39a65731809ace3bd2081901829ab7487"
+  },
+  {
+   "name": "training_data_2026-08-31_1.zip",
+   "bytes": 1627397895,
+   "sha256": "572d1d5281cebc1fa5f4fe86a21ef4b791ec9a1929ee5ba4cb814f1cb31c7028"
+  },
+  {
+   "name": "training_data_2026-08-31_2.zip",
+   "bytes": 838048048,
+   "sha256": "c10b388e286126c3ae683247892da94076c513b58e41a175c69157464d0ef457"
+  },
+  {
+   "name": "training_data_2026-08-31_3.zip",
+   "bytes": 622196622,
+   "sha256": "5f175aa01585fa7ff6377b408d64f078d721632830a2c31be45605ce0870fbe7"
+  },
+  {
+   "name": "training_data_2026-09-03 (1).zip",
+   "bytes": 1625073022,
+   "sha256": "8d3136cdce66d98f996270a931d947bfb0f4698292869439b331d94e0840ba7c"
+  },
+  {
+   "name": "training_data_2026-09-03-1.zip",
+   "bytes": 1177688083,
+   "sha256": "fb1b9a93b54b3c2382b967b5e11a1a67be629a6bedcc72ff31cbd9db803a54ba"
+  },
+  {
+   "name": "training_data_2026-09-03.zip",
+   "bytes": 1453081053,
+   "sha256": "f3e6707de625edfbf0d21ea1418c9a494565e7d5244daace1a7f54aa68ed9de7"
+  },
+  {
+   "name": "training_data_2026-09-08 (1).zip",
+   "bytes": 1183365787,
+   "sha256": "eb791dc005e07390bbc65c6d345d58190b4df5f84fd45310dedc12164c2e602d"
+  },
+  {
+   "name": "training_data_2026-09-08 (2).zip",
+   "bytes": 888803724,
+   "sha256": "f13fedc1b2280c5e96660f60ff78a4fdc8d001a09d45b0ad06ada750e3dad5d5"
+  },
+  {
+   "name": "training_data_2026-09-08 (4).zip",
+   "bytes": 837984781,
+   "sha256": "1a50d45121199c84beeb42e51db7e676c09b2a0bad4d6952eeaed18ef9727ef8"
+  },
+  {
+   "name": "training_data_2026-09-08 5.zip",
+   "bytes": 1312326853,
+   "sha256": "6bfd0acf96e5fca2cf6171da7ce3056e4d5d30c026c77057f958f296c7fee39a"
+  },
+  {
+   "name": "training_data_2026-09-08 6.zip",
+   "bytes": 907292534,
+   "sha256": "77bc60cf375fae21e379cf58c0026c05cc001e238fd0e3c57ba4958720d59e90"
+  },
+  {
+   "name": "training_data_2026-09-08.zip",
+   "bytes": 403411532,
+   "sha256": "654cb6cf3c4814a04a02f4f6e42c90e66efec163e954f3de4eb2dab1cddec8c4"
+  },
+  {
+   "name": "training_data_2026-09-13 (1).zip",
+   "bytes": 1039559714,
+   "sha256": "9636b10d566c6b1e6162063edf7ef1b70e8f6f0f824cfbfa5811dd3f19f573e8"
+  },
+  {
+   "name": "training_data_2026-09-13 (2).zip",
+   "bytes": 871179631,
+   "sha256": "5791785f0c38a2e4e453e5161844e3949244058af8ca18ccfae13efb24aeccaf"
+  },
+  {
+   "name": "training_data_2026-09-13 (3).zip",
+   "bytes": 1099014710,
+   "sha256": "1831c2d56000bee3805d83fe2d51097fdc8a4b697761c6b0c290dc2def4e7af4"
+  },
+  {
+   "name": "training_data_2026-09-13 (4).zip",
+   "bytes": 1009775721,
+   "sha256": "835582eb3f910935c7e4aa5c447da8a13e308279276ccabc34fdedcfcec395b4"
+  },
+  {
+   "name": "training_data_2026-09-13.zip",
+   "bytes": 837985316,
+   "sha256": "d7d301c7202b3db5f850ab37fe7c5b51cd364d3591b25a2fefdc098c82aa1cf4"
+  },
+  {
+   "name": "training_data_2026-09-14 (1).zip",
+   "bytes": 1698650641,
+   "sha256": "af0f5e0f4af235a4e5a53c096f180b1be58608a5d3a5b0cbd4179559f8e8f73c"
+  },
+  {
+   "name": "training_data_2026-09-14.zip",
+   "bytes": 937455006,
+   "sha256": "c144c725ac8ec082edeba8aa0b19be1caa6372227c27ffdb8faa8f048f616c15"
+  },
+  {
+   "name": "training_data_2026-09-17 (1).zip",
+   "bytes": 1635039276,
+   "sha256": "3c98a66bd733370611fb4b9d83baefa2308558e6f22a2650eb75b17591ac2d8e"
+  },
+  {
+   "name": "training_data_2026-09-17 (2).zip",
+   "bytes": 842144024,
+   "sha256": "df32f91067668a6684eebaf4bcff5fcd759b31405473820b2eaa5a63256f004d"
+  },
+  {
+   "name": "training_data_2026-09-17 (3).zip",
+   "bytes": 1420849405,
+   "sha256": "2db57db4c314926995bd2adcf414cfb233466abe0656b0bdd9644d2fca0c0ab3"
+  },
+  {
+   "name": "training_data_2026-09-17.zip",
+   "bytes": 1352794853,
+   "sha256": "66a4ff2f1d654fd0d68f51b63450faa46116e4f9bd8455dcf02a30068f31788d"
+  }
+ ]
+}

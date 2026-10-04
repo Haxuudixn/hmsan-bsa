@@ -1,15 +1,18 @@
-﻿"""Bid Document Dataset - loads annotated training data from ZIP exports."""
+"""Bid Document Dataset - loads annotated training data from ZIP exports."""
 from __future__ import annotations
 
 import csv
 import io
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
+
+from bid_slicing.data.vit_cache import block_key
 
 
 # Valid 19-class labels from the annotation schema
@@ -25,13 +28,36 @@ IGNORE_INDEX = -100
 
 # Open ZIP handles are reused across block accesses.  DataLoader uses
 # num_workers=0 in train.py, so no thread-safety issue in this project.
-_ZIP_CACHE: dict[str, zipfile.ZipFile] = {}
+#
+# The cache is bounded.  It previously grew without limit, so a run that
+# touched every export held every handle and every central directory open for
+# the whole run; on an 8 GB machine that is pressure this project cannot
+# afford.  Evicting a handle is cheap because ``ZipFile.open`` transparently
+# re-opens the file and re-reads the central directory when ``fp is None``.
+# Measured on the final_train corpus (2026-09-21): a zip read costs ~14 ms per
+# image with a warm handle but ~114 ms when ``ZipFile.open`` has to re-read the
+# central directory, and an open handle costs roughly ~1 MB (fp + ZipInfo
+# table).  The cap is therefore set above the current 38-export corpus, so a
+# normal run never pays a reopen while the cache still cannot grow forever.
+_ZIP_CACHE_MAX = 64
+_ZIP_CACHE: "OrderedDict[str, zipfile.ZipFile]" = OrderedDict()
 
 
 def _get_zip(zip_path: str) -> zipfile.ZipFile:
-    if zip_path not in _ZIP_CACHE:
-        _ZIP_CACHE[zip_path] = zipfile.ZipFile(zip_path, "r")
-    return _ZIP_CACHE[zip_path]
+    cached = _ZIP_CACHE.get(zip_path)
+    if cached is not None:
+        _ZIP_CACHE.move_to_end(zip_path)
+        return cached
+
+    handle = zipfile.ZipFile(zip_path, "r")
+    _ZIP_CACHE[zip_path] = handle
+    while len(_ZIP_CACHE) > _ZIP_CACHE_MAX:
+        _, evicted = _ZIP_CACHE.popitem(last=False)
+        try:
+            evicted.close()
+        except OSError:
+            pass
+    return handle
 
 
 def _read_image(zip_path: str, member: str) -> Optional[Image.Image]:
@@ -85,18 +111,35 @@ class Block:
         t = self.block_type.lower()
         if t == "text":
             return 0
-        elif t == "image":
+        if t == "image":
+            # Image blocks with OCR text are treated as MIXED so the model
+            # can fuse RoBERTa(ocr_text) with ViT(image) features.
+            if (self.ocr_text or "").strip():
+                return 2
             return 1
         return 2
+
+    @property
+    def image_member(self) -> str:
+        """ZIP member that holds this block's image ("" when there is none)."""
+        member = self.block_file or ""
+        if not member:
+            # A few exports put the member path in `content` for image blocks.
+            member = self.text if self.text and not self.text.startswith("[") else ""
+        return member
+
+    @property
+    def image_cache_key(self) -> str:
+        """Key into the frozen-ViT feature cache (see data/vit_cache.py)."""
+        if self.block_type_id not in (1, 2):
+            return ""
+        return block_key(self.source_zip, self.image_member)
 
     def load_image(self) -> Optional[Image.Image]:
         """Load the block image from its source ZIP on demand."""
         if self.block_type_id not in (1, 2):
             return None
-        member = self.block_file or ""
-        if not member:
-            member = self.text if self.text and not self.text.startswith("[") else ""
-        return _read_image(self.source_zip, member)
+        return _read_image(self.source_zip, self.image_member)
 
 
 class Page:
@@ -151,11 +194,20 @@ def _safe_int(val, default: int = 0) -> int:
 
 def load_documents_from_zips(
     zip_paths: list[str],
+    max_blocks_per_sample: int = 0,
+    max_pages_per_sample: int = 0,
 ) -> list[Document]:
     """Load annotated documents from ZIP files.
 
     Rows are associated with their source ZIP so image blocks can be lazily
     read later by `Block.load_image`.
+
+    `max_blocks_per_sample` / `max_pages_per_sample` > 0 split long documents
+    into consecutive page ranges within those caps.  The full-document graph is
+    what sets the VRAM peak, and that peak grows with both the block count
+    (~0.8 MB/block) and the page count (~16 MB/page), so both are capped.
+    Segments keep the original `pdf_name`, so the train/val split still treats
+    them as one document.
     """
     all_rows: list[tuple[str, dict]] = []
 
@@ -192,7 +244,42 @@ def load_documents_from_zips(
         pages = [Page(pn, blks) for pn, blks in sorted(pages_dict.items())]
         documents.append(Document(pdf_name, pages, source_zip=source_zip))
 
+    if max_blocks_per_sample > 0 or max_pages_per_sample > 0:
+        documents = [
+            segment
+            for doc in documents
+            for segment in _split_long_document(
+                doc, max_blocks_per_sample, max_pages_per_sample
+            )
+        ]
+
     return documents
+
+
+def _split_long_document(
+    doc: Document, max_blocks: int, max_pages: int = 0
+) -> list[Document]:
+    """Cut a document into page-contiguous segments within the given caps."""
+    too_big = (max_blocks > 0
+               and sum(len(page.blocks) for page in doc.pages) > max_blocks) \
+        or (max_pages > 0 and len(doc.pages) > max_pages)
+    if not too_big:
+        return [doc]
+    segments: list[Document] = []
+    current: list[Page] = []
+    current_blocks = 0
+    for page in doc.pages:
+        over_blocks = max_blocks > 0 and current_blocks + len(page.blocks) > max_blocks
+        over_pages = max_pages > 0 and len(current) + 1 > max_pages
+        if current and (over_blocks or over_pages):
+            segments.append(Document(doc.pdf_name, current, source_zip=doc.source_zip))
+            current = []
+            current_blocks = 0
+        current.append(page)
+        current_blocks += len(page.blocks)
+    if current:
+        segments.append(Document(doc.pdf_name, current, source_zip=doc.source_zip))
+    return segments
 
 
 class BidDocumentDataset(Dataset):
@@ -213,18 +300,55 @@ class BidDocumentDataset(Dataset):
         val_ratio: float = 0.15,
         seed: int = 42,
     ) -> tuple["BidDocumentDataset", "BidDocumentDataset", "BidDocumentDataset"]:
+        """Split by source PDF, never through one.
+
+        ``_split_long_document`` turns one PDF into several page-range segments,
+        and those segments all carry the same ``pdf_name``. The split therefore
+        accumulates whole *groups* of segments: slicing on the flattened segment
+        list would cut through a group and let one source PDF appear in two
+        splits, which leaks content across the boundary.
+        """
         import random
         random.seed(seed)
-        docs = list(self.documents)
-        random.shuffle(docs)
-        n = len(docs)
-        n_train = int(n * train_ratio)
-        n_val = int(n * val_ratio)
-        return (
-            BidDocumentDataset(docs[:n_train]),
-            BidDocumentDataset(docs[n_train:n_train + n_val]),
-            BidDocumentDataset(docs[n_train + n_val:]),
-        )
+        # Documents sharing the same pdf_name are the same source file exported
+        # more than once; keep them in a single split so an identical document
+        # cannot appear in both train and validation.
+        groups: dict[str, list[Document]] = {}
+        for doc in self.documents:
+            groups.setdefault(doc.pdf_name, []).append(doc)
+        keys = sorted(groups)
+        random.shuffle(keys)
+
+        total = sum(len(groups[key]) for key in keys)
+        target_train = total * train_ratio
+        target_val = total * val_ratio
+
+        splits: list[list[Document]] = [[], [], []]
+        placed = 0
+        for key in keys:
+            group = groups[key]
+            if placed < target_train:
+                slot = 0
+            elif placed < target_train + target_val:
+                slot = 1
+            else:
+                slot = 2
+            # Extend, never truncate: the whole PDF lands in one split.
+            splits[slot].extend(group)
+            placed += len(group)
+
+        # A single large group can swallow a whole budget; steal the last group
+        # of the previous split rather than hand back an empty dataset.
+        for slot in (1, 2):
+            if not splits[slot] and len(splits[slot - 1]) > 1:
+                moved_name = splits[slot - 1][-1].pdf_name
+                moved = [d for d in splits[slot - 1] if d.pdf_name == moved_name]
+                splits[slot - 1] = [
+                    d for d in splits[slot - 1] if d.pdf_name != moved_name
+                ]
+                splits[slot][0:0] = moved
+
+        return tuple(BidDocumentDataset(s) for s in splits)
 
 
 def collate_document(batch: list[Document]) -> dict:

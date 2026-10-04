@@ -8,6 +8,7 @@ from PIL import Image
 
 from bid_slicing.models.block_encoder import BlockMultiModalEncoder
 from bid_slicing.models.page_encoder import PageEncoder, InterPageAttention
+from bid_slicing.models.ablation import AblationFlags
 from bid_slicing.models.memory import InfiniPageMemory, InfiniSectionMemory
 from bid_slicing.models.boundary_head import BoundaryHead, ClassificationHead, SectionHead
 
@@ -45,11 +46,15 @@ class HMSAN_BSA(nn.Module):
         num_global_tokens: int = 4,
         inter_page_window: int = 3,
         dropout: float = 0.1,
+        flags: AblationFlags | None = None,
+        vit_cache: Any | None = None,
     ):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_global_tokens = num_global_tokens
         self.inter_page_window = inter_page_window
+        self.flags = flags or AblationFlags()
+        flags = self.flags
 
         # ── Block Encoder ──
         self.block_encoder = BlockMultiModalEncoder(
@@ -60,6 +65,8 @@ class HMSAN_BSA(nn.Module):
             image_freeze=image_freeze,
             hidden_size=hidden_size,
             dropout=dropout,
+            gated_fusion=flags.gated_fusion,
+            vit_cache=vit_cache,
         )
 
         # ── Page Encoder ──
@@ -74,17 +81,25 @@ class HMSAN_BSA(nn.Module):
             indexer_dim=gsa_indexer_dim,
             num_global=num_global_tokens,
             dropout=dropout,
+            flags=flags,
         )
 
         # ── Infini-attention Compressive Memory ──
-        self.page_memory = InfiniPageMemory(
-            dim=hidden_size,
-            dropout=dropout,
+        # A6 / A6+A7 drop the modules entirely rather than bypassing them.
+        self.page_memory = (
+            InfiniPageMemory(dim=hidden_size, dropout=dropout)
+            if flags.page_memory
+            else None
         )
-        self.section_memory = InfiniSectionMemory(
-            dim=hidden_size,
-            num_boundaries=num_boundaries,
-            dropout=dropout,
+        self.section_memory = (
+            InfiniSectionMemory(
+                dim=hidden_size,
+                num_boundaries=num_boundaries,
+                dropout=dropout,
+                boundary_gate=flags.boundary_gate,
+            )
+            if flags.section_memory
+            else None
         )
 
         # ── Inter-page Attention ──
@@ -93,6 +108,7 @@ class HMSAN_BSA(nn.Module):
             num_heads=page_encoder_heads,
             window=inter_page_window,
             dropout=dropout,
+            gated=flags.gated_interpage,
         )
 
         # ── Heads ──
@@ -151,9 +167,9 @@ class HMSAN_BSA(nn.Module):
         device = block_type_ids.device
         B = 1
 
-        if page_M is None:
+        if self.page_memory is not None and page_M is None:
             page_M, page_z = self.page_memory.init_state(B, device)
-        if section_M is None:
+        if self.section_memory is not None and section_M is None:
             section_M, section_z = self.section_memory.init_state(B, device)
         if page_history is None:
             page_history = torch.zeros(B, 0, self.hidden_size, device=device)
@@ -169,10 +185,16 @@ class HMSAN_BSA(nn.Module):
             p_texts = texts[prev_end:end]
             p_ocr = ocr_texts[prev_end:end]
             p_image_blocks = image_blocks[prev_end:end]
-            p_images = [
-                b.load_image() if b is not None else None
-                for b in p_image_blocks
-            ]
+            # With an active frozen-ViT cache the block encoder resolves images
+            # from the key index, so decoding every block up front would throw
+            # away the point of the cache.
+            if self.block_encoder.image_cache_active:
+                p_images = None
+            else:
+                p_images = [
+                    b.load_image() if b is not None else None
+                    for b in p_image_blocks
+                ]
             p_bt = block_type_ids[prev_end:end]
             p_bbox = bbox_norm[prev_end:end]
             p_fs = font_size[prev_end:end]
@@ -185,6 +207,7 @@ class HMSAN_BSA(nn.Module):
                 texts=p_texts,
                 ocr_texts=p_ocr,
                 images=p_images,
+                image_blocks=p_image_blocks,
                 block_type_ids=p_bt,
                 bbox_norm=p_bbox,
                 font_size=p_fs,
@@ -205,14 +228,20 @@ class HMSAN_BSA(nn.Module):
             boundary_logits_list.append(bound_logits)
 
             # ── Infini Page Memory: compress + retrieve ──
-            enhanced_page, page_M, page_z = self.page_memory.step(
-                page_repr, page_M, page_z
-            )
+            if self.page_memory is not None:
+                enhanced_page, page_M, page_z = self.page_memory.step(
+                    page_repr, page_M, page_z
+                )
+            else:
+                enhanced_page = page_repr
 
             # ── Infini Section Memory: boundary-gated compress + retrieve ──
-            enhanced_section, section_M, section_z = self.section_memory.step(
-                page_repr, bound_logits, section_M, section_z
-            )
+            if self.section_memory is not None:
+                enhanced_section, section_M, section_z = self.section_memory.step(
+                    page_repr, bound_logits, section_M, section_z
+                )
+            else:
+                enhanced_section = torch.zeros_like(page_repr)
 
             # ── Combine memory readouts for classification ──
             # enhanced_page already has memory context; add section context too

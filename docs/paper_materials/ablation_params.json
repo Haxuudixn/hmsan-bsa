@@ -1,0 +1,239 @@
+{
+ "protocol": "text_freeze=True, image_freeze=True; total params include frozen encoders",
+ "rows": [
+  {
+   "preset": "full",
+   "label": "Full HMSAN-BSA",
+   "signature": "gsa-g11-g21-adk1-gf1-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191169859,
+   "parameters_trainable": 2512963,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A1_no_g1",
+   "label": "A1: -G1 output gate",
+   "signature": "gsa-g10-g21-adk1-gf1-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191136835,
+   "parameters_trainable": 2479939,
+   "modules": {
+    "g1_output_gate": false,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A2_no_g2",
+   "label": "A2: -G2 value gate",
+   "signature": "gsa-g11-g20-adk1-gf1-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191136835,
+   "parameters_trainable": 2479939,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": false,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A3_fixed_k",
+   "label": "A3: fixed sparsity (k=k_base)",
+   "signature": "gsa-g11-g21-adk0-gf1-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191169859,
+   "parameters_trainable": 2512963,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A4_no_gated_fusion",
+   "label": "A4: -gated fusion (concat+Linear)",
+   "signature": "gsa-g11-g21-adk1-gf0-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191169859,
+   "parameters_trainable": 2512963,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": false,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A5_standard_ffn",
+   "label": "A5: standard FFN (no GLU)",
+   "signature": "gsa-g11-g21-adk1-gf1-ffn0-ip1-pm1-sm1-bg1",
+   "parameters_total": 191037763,
+   "parameters_trainable": 2380867,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": false,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A6_no_page_memory",
+   "label": "A6: -Infini page memory",
+   "signature": "gsa-g11-g21-adk1-gf1-ffn1-ip1-pm0-sm1-bg1",
+   "parameters_total": 191071299,
+   "parameters_trainable": 2414403,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": false,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A7_no_boundary_gate",
+   "label": "A7: -boundary gate",
+   "signature": "gsa-g11-g21-adk1-gf1-ffn1-ip1-pm1-sm1-bg0",
+   "parameters_total": 191152706,
+   "parameters_trainable": 2495810,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": false,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A8_no_interpage_gate",
+   "label": "A8: -inter-page gate",
+   "signature": "gsa-g11-g21-adk1-gf1-ffn1-ip0-pm1-sm1-bg1",
+   "parameters_total": 191136963,
+   "parameters_trainable": 2480067,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": false
+   }
+  },
+  {
+   "preset": "A9_local_window",
+   "label": "A9: local window attention (w=10)",
+   "signature": "local_window-g11-g21-adk1-gf1-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191103291,
+   "parameters_trainable": 2446395,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": false,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A10_dense",
+   "label": "A10: dense attention",
+   "signature": "dense-g11-g21-adk1-gf1-ffn1-ip1-pm1-sm1-bg1",
+   "parameters_total": 191103291,
+   "parameters_trainable": 2446395,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": false,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": true,
+    "interpage_gate": true
+   }
+  },
+  {
+   "preset": "A11_no_gates",
+   "label": "A11: all gates off",
+   "signature": "gsa-g10-g20-adk0-gf0-ffn0-ip0-pm1-sm1-bg0",
+   "parameters_total": 190921666,
+   "parameters_trainable": 2264770,
+   "modules": {
+    "g1_output_gate": false,
+    "g2_value_gate": false,
+    "lightning_indexer": true,
+    "gated_ffn": false,
+    "gated_fusion": false,
+    "page_memory": true,
+    "section_memory": true,
+    "boundary_gate": false,
+    "interpage_gate": false
+   }
+  },
+  {
+   "preset": "A6A7_no_memory",
+   "label": "A6+A7: no compressive memory at all",
+   "signature": "gsa-g11-g21-adk1-gf1-ffn1-ip1-pm0-sm0-bg1",
+   "parameters_total": 190955586,
+   "parameters_trainable": 2298690,
+   "modules": {
+    "g1_output_gate": true,
+    "g2_value_gate": true,
+    "lightning_indexer": true,
+    "gated_ffn": true,
+    "gated_fusion": true,
+    "page_memory": false,
+    "section_memory": false,
+    "boundary_gate": false,
+    "interpage_gate": true
+   }
+  }
+ ]
+}

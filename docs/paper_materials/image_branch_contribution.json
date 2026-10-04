@@ -1,0 +1,29 @@
+{
+ "checkpoint": "last.pt (text_freeze=False, image_freeze=True)",
+ "test_segments": 66,
+ "blocks": 84304,
+ "per_group": {
+  "text": {
+   "n": 73711,
+   "share": 0.8743475991649269,
+   "baseline_accuracy": 0.9160098221432351,
+   "vit_zeroed_accuracy": 0.9099727313426761
+  },
+  "image_visual_only": {
+   "n": 6062,
+   "share": 0.07190643385841716,
+   "baseline_accuracy": 0.8954140547674035,
+   "vit_zeroed_accuracy": 0.8416364236225669
+  },
+  "mixed": {
+   "n": 4531,
+   "share": 0.053745966976655915,
+   "baseline_accuracy": 0.9571838446259104,
+   "vit_zeroed_accuracy": 0.9512248951666299
+  }
+ },
+ "overall": {
+  "baseline_accuracy": 0.9167417916113114,
+  "vit_zeroed_accuracy": 0.9072760485860695
+ }
+}

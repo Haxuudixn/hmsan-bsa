@@ -1,0 +1,71 @@
+{
+ "corpus": {
+  "packages": 38,
+  "source_documents": 135,
+  "unique_pdf_names": 132,
+  "segments": 434,
+  "pages": 52344,
+  "blocks": 456602,
+  "labeled_blocks": 456509,
+  "label_rate": 0.9998,
+  "blocks_with_ocr_text": 37759,
+  "image_blocks_total": 84806,
+  "image_blocks_with_ocr": 37666,
+  "ocr_coverage_of_image_blocks": 0.4441,
+  "text_blocks_with_ocr_text": 93,
+  "block_type_counts": {
+   "text": 371796,
+   "image": 47140,
+   "mixed": 37666
+  },
+  "text_chars": 8117656,
+  "ocr_chars": 16796111
+ },
+ "split": {
+  "train": 303,
+  "val": 65,
+  "test": 66
+ },
+ "best_val_accuracy": {
+  "epoch": 2,
+  "value": 0.9735510945320129,
+  "macro_f1": 0.8668668381699683
+ },
+ "best_val_macro_f1": {
+  "epoch": 5,
+  "value": 0.9043345077872187,
+  "accuracy": 0.9716665148735046
+ },
+ "final_epoch": 8,
+ "test": {
+  "selected_checkpoint": "last.pt",
+  "accuracy": 0.9167417883872986,
+  "macro_f1": 0.88543454804859,
+  "models": [
+   {
+    "checkpoint": "best_model.pt",
+    "source_epoch": 2,
+    "accuracy": 0.8863043189048767,
+    "macro_f1": 0.8182775014166446,
+    "parameters_total": 191169859,
+    "valid_blocks": 84304
+   },
+   {
+    "checkpoint": "last.pt",
+    "source_epoch": 8,
+    "accuracy": 0.9167417883872986,
+    "macro_f1": 0.88543454804859,
+    "parameters_total": 191169859,
+    "valid_blocks": 84304
+   },
+   {
+    "checkpoint": "checkpoint_epoch5.pt",
+    "source_epoch": 5,
+    "accuracy": 0.9178212285041809,
+    "macro_f1": 0.8717431267451298,
+    "parameters_total": 191169859,
+    "valid_blocks": 84304
+   }
+  ]
+ }
+}
